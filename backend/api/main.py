@@ -1,0 +1,39 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import time
+
+app = FastAPI(
+    title="TruthChain API",
+    description="AI Validation as a Service",
+    version="1.0.0",
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Request timing middleware
+@app.middleware("http")
+async def add_process_time_header(request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
+
+@app.get("/")
+async def root():
+    return {
+        "service": "TruthChain API",
+        "version": "1.0.0",
+        "status": "operational"
+    }
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
