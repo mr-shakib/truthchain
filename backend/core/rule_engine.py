@@ -1,0 +1,264 @@
+"""
+Rule Engine - Validates data against business rules and constraints
+"""
+from typing import Dict, List, Any, Optional
+import re
+from .validation_engine import Violation, ViolationType
+
+
+class RuleEngine:
+    """Validates output against business rules (ranges, constraints, patterns)"""
+    
+    async def validate(
+        self,
+        output: Dict[str, Any],
+        rules: List[Dict[str, Any]],
+        context: Optional[Dict[str, Any]] = None
+    ) -> List[Violation]:
+        """
+        Validate output against business rules
+        
+        Args:
+            output: The data to validate
+            rules: List of validation rules
+            context: Optional context for validation
+        
+        Returns:
+            List of violations found
+        """
+        violations = []
+        
+        for rule in rules:
+            rule_type = rule.get('type')
+            
+            if rule_type == 'range':
+                range_violations = self._validate_range(output, rule)
+                violations.extend(range_violations)
+            
+            elif rule_type == 'constraint':
+                constraint_violations = self._validate_constraint(output, rule)
+                violations.extend(constraint_violations)
+            
+            elif rule_type == 'pattern':
+                pattern_violations = self._validate_pattern(output, rule)
+                violations.extend(pattern_violations)
+        
+        return violations
+    
+    def _validate_range(
+        self,
+        output: Dict[str, Any],
+        rule: Dict[str, Any]
+    ) -> List[Violation]:
+        """
+        Validate numeric ranges
+        
+        Args:
+            output: Data to validate
+            rule: Range rule with min/max values
+        
+        Returns:
+            List of violations
+        """
+        violations = []
+        field = rule.get('field')
+        min_val = rule.get('min')
+        max_val = rule.get('max')
+        
+        value = self._get_nested_value(output, field)
+        
+        # Skip if field not found
+        if value is None:
+            return violations
+        
+        # Validate min
+        if min_val is not None:
+            try:
+                if float(value) < float(min_val):
+                    violations.append(Violation(
+                        rule_name=rule.get('name', f'{field}_range_check'),
+                        violation_type=ViolationType.CONSTRAINT,
+                        field=field,
+                        message=f"{field} must be >= {min_val}",
+                        severity=rule.get('severity', 'error'),
+                        found_value=value,
+                        expected_value=f">= {min_val}"
+                    ))
+            except (ValueError, TypeError):
+                violations.append(Violation(
+                    rule_name=rule.get('name', f'{field}_range_check'),
+                    violation_type=ViolationType.CONSTRAINT,
+                    field=field,
+                    message=f"{field} must be a number",
+                    severity='error',
+                    found_value=value,
+                    expected_value="numeric value"
+                ))
+        
+        # Validate max
+        if max_val is not None:
+            try:
+                if float(value) > float(max_val):
+                    violations.append(Violation(
+                        rule_name=rule.get('name', f'{field}_range_check'),
+                        violation_type=ViolationType.CONSTRAINT,
+                        field=field,
+                        message=f"{field} must be <= {max_val}",
+                        severity=rule.get('severity', 'error'),
+                        found_value=value,
+                        expected_value=f"<= {max_val}"
+                    ))
+            except (ValueError, TypeError):
+                if field not in [v.field for v in violations]:  # Avoid duplicate errors
+                    violations.append(Violation(
+                        rule_name=rule.get('name', f'{field}_range_check'),
+                        violation_type=ViolationType.CONSTRAINT,
+                        field=field,
+                        message=f"{field} must be a number",
+                        severity='error',
+                        found_value=value,
+                        expected_value="numeric value"
+                    ))
+        
+        return violations
+    
+    def _validate_constraint(
+        self,
+        output: Dict[str, Any],
+        rule: Dict[str, Any]
+    ) -> List[Violation]:
+        """
+        Validate custom constraints using expressions
+        
+        Args:
+            output: Data to validate
+            rule: Constraint rule with expression
+        
+        Returns:
+            List of violations
+        """
+        violations = []
+        field = rule.get('field')
+        expression = rule.get('expression')  # e.g., "value > 0 and value < 100"
+        
+        value = self._get_nested_value(output, field)
+        if value is None:
+            return violations
+        
+        try:
+            # Safe eval with limited scope
+            # Only allow 'value' variable and basic operations
+            allowed_names = {
+                "__builtins__": {},
+                "abs": abs,
+                "len": len,
+                "min": min,
+                "max": max,
+                "sum": sum,
+            }
+            result = eval(expression, allowed_names, {"value": value})
+            
+            if not result:
+                violations.append(Violation(
+                    rule_name=rule.get('name', f'{field}_constraint'),
+                    violation_type=ViolationType.CONSTRAINT,
+                    field=field,
+                    message=rule.get('message', f"Constraint failed: {expression}"),
+                    severity=rule.get('severity', 'error'),
+                    found_value=value,
+                    expected_value=expression
+                ))
+        except Exception as e:
+            # Log error but create violation for invalid expression
+            violations.append(Violation(
+                rule_name=rule.get('name', f'{field}_constraint'),
+                violation_type=ViolationType.CONSTRAINT,
+                field=field,
+                message=f"Constraint evaluation error: {str(e)}",
+                severity='warning',
+                found_value=value
+            ))
+        
+        return violations
+    
+    def _validate_pattern(
+        self,
+        output: Dict[str, Any],
+        rule: Dict[str, Any]
+    ) -> List[Violation]:
+        """
+        Validate regex patterns
+        
+        Args:
+            output: Data to validate
+            rule: Pattern rule with regex
+        
+        Returns:
+            List of violations
+        """
+        violations = []
+        field = rule.get('field')
+        pattern = rule.get('pattern')
+        
+        value = self._get_nested_value(output, field)
+        
+        # Skip if field not found
+        if value is None:
+            return violations
+        
+        # Value must be string for pattern matching
+        if not isinstance(value, str):
+            violations.append(Violation(
+                rule_name=rule.get('name', f'{field}_pattern_check'),
+                violation_type=ViolationType.CONSTRAINT,
+                field=field,
+                message=f"{field} must be a string for pattern matching",
+                severity='error',
+                found_value=value,
+                expected_value="string"
+            ))
+            return violations
+        
+        try:
+            if not re.match(pattern, value):
+                violations.append(Violation(
+                    rule_name=rule.get('name', f'{field}_pattern_check'),
+                    violation_type=ViolationType.CONSTRAINT,
+                    field=field,
+                    message=rule.get('message', f"Value must match pattern: {pattern}"),
+                    severity=rule.get('severity', 'error'),
+                    found_value=value,
+                    expected_value=f"Pattern: {pattern}",
+                    suggestion=rule.get('suggestion')
+                ))
+        except re.error as e:
+            violations.append(Violation(
+                rule_name=rule.get('name', f'{field}_pattern_check'),
+                violation_type=ViolationType.CONSTRAINT,
+                field=field,
+                message=f"Invalid regex pattern: {str(e)}",
+                severity='warning',
+                found_value=value
+            ))
+        
+        return violations
+    
+    def _get_nested_value(self, obj: Dict, path: str) -> Any:
+        """
+        Get value from nested dict using dot notation
+        
+        Args:
+            obj: Dictionary to traverse
+            path: Dot-separated path (e.g., 'user.address.city')
+        
+        Returns:
+            Value at path or None if not found
+        """
+        keys = path.split('.')
+        value = obj
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key)
+            else:
+                return None
+        return value

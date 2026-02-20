@@ -49,11 +49,14 @@ def generate_validation_id() -> str:
 
 class ValidationEngine:
     def __init__(self):
-        # Placeholder for future components
-        self.schema_validator = None
-        self.rule_engine = None
-        self.context_manager = None
-        self.auto_corrector = None
+        # Import here to avoid circular imports
+        from .schema_validator import SchemaValidator
+        from .rule_engine import RuleEngine
+        
+        self.schema_validator = SchemaValidator()
+        self.rule_engine = RuleEngine()
+        self.context_manager = None  # To be implemented in future
+        self.auto_corrector = None    # To be implemented in future
     
     async def validate(
         self,
@@ -65,23 +68,46 @@ class ValidationEngine:
         start_time = time.time()
         violations = []
         
-        # TODO: Implement validation steps
         # Step 1: Schema validation
-        # Step 2: Business rules validation
-        # Step 3: Reference validation (if context provided)
-        # Step 4: Auto-correction attempt
+        schema_violations = await self.schema_validator.validate(output, rules)
+        violations.extend(schema_violations)
         
-        # For now, return a basic response
+        # Step 2: Business rules validation
+        rule_violations = await self.rule_engine.validate(output, rules, context)
+        violations.extend(rule_violations)
+        
+        # Step 3: Reference validation (if context provided)
+        # TODO: Implement context manager for database reference validation
+        # if context and self.context_manager:
+        #     ref_violations = await self.context_manager.validate_references(
+        #         output, rules, context
+        #     )
+        #     violations.extend(ref_violations)
+        
+        # Step 4: Auto-correction attempt
         corrected_output = None
         auto_corrected = False
+        # TODO: Implement auto-corrector
+        # if violations and context and context.get('auto_correct'):
+        #     corrected_output = await self.auto_corrector.fix(output, violations)
+        #     auto_corrected = corrected_output is not None
         
         # Calculate result
         latency_ms = int((time.time() - start_time) * 1000)
         validation_id = generate_validation_id()
         
+        # Determine status
+        error_count = len([v for v in violations if v.severity == 'error'])
+        if error_count == 0:
+            status = ValidationStatus.PASSED
+        elif len([v for v in violations if v.severity == 'warning']) > 0 and error_count == 0:
+            status = ValidationStatus.WARNING
+        else:
+            status = ValidationStatus.FAILED
+        
         return ValidationResult(
-            status=ValidationStatus.FAILED if violations else ValidationStatus.PASSED,
-            valid=len([v for v in violations if v.severity == 'error']) == 0,
+            status=status,
+            valid=error_count == 0,
             violations=violations,
             auto_corrected=auto_corrected,
             corrected_output=corrected_output,
