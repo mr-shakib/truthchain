@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 import time
-import uuid
 
 from ...core.validation_engine import ValidationEngine, ValidationResult
 from ...models.organization import Organization
@@ -107,16 +106,19 @@ async def validate(
         # Calculate latency
         latency_ms = int((time.time() - start_time) * 1000)
         
-        # Log validation
+        # Update result with latency
+        result.latency_ms = latency_ms
+        
+        # Log validation to database
         validation_log = ValidationLog(
             organization_id=organization.id,
-            validation_id=str(uuid.uuid4()),
+            validation_id=result.validation_id,  # Use the ID from ValidationEngine
             input_data=request.output,
             output_data=result.corrected_output if result.corrected_output else request.output,
             rules_applied=request.rules,
             result=result.status.value,
-            violations=[v.dict() for v in result.violations],
-            auto_corrected=result.corrected_output is not None,
+            violations=[v.dict() for v in result.violations] if result.violations else [],
+            auto_corrected=result.auto_corrected,
             latency_ms=latency_ms
         )
         
@@ -125,12 +127,14 @@ async def validate(
         # Increment usage counter
         await increment_usage(db, organization)
         
-        # Add latency to result
-        result.latency_ms = latency_ms
+        # Commit all changes to database
+        await db.commit()
         
         return result
     
     except Exception as e:
+        # Rollback on error
+        await db.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Validation error: {str(e)}"
