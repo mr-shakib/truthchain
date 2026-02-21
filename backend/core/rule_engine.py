@@ -71,54 +71,50 @@ class RuleEngine:
         if value is None:
             return violations
         
-        # Validate min
-        if min_val is not None:
-            try:
-                if float(value) < float(min_val):
-                    violations.append(Violation(
-                        rule_name=rule.get('name', f'{field}_range_check'),
-                        violation_type=ViolationType.CONSTRAINT,
-                        field=field,
-                        message=f"{field} must be >= {min_val}",
-                        severity=rule.get('severity', 'error'),
-                        found_value=value,
-                        expected_value=f">= {min_val}"
-                    ))
-            except (ValueError, TypeError):
-                violations.append(Violation(
-                    rule_name=rule.get('name', f'{field}_range_check'),
-                    violation_type=ViolationType.CONSTRAINT,
-                    field=field,
-                    message=f"{field} must be a number",
-                    severity='error',
-                    found_value=value,
-                    expected_value="numeric value"
-                ))
+        # Check if value is out of range
+        is_invalid = False
+        try:
+            num_value = float(value)
+            if min_val is not None and num_value < float(min_val):
+                is_invalid = True
+            if max_val is not None and num_value > float(max_val):
+                is_invalid = True
+        except (ValueError, TypeError):
+            violations.append(Violation(
+                rule_name=rule.get('name', f'{field}_range_check'),
+                violation_type=ViolationType.CONSTRAINT,
+                field=field,
+                message=f"{field} must be a number",
+                severity='error',
+                found_value=value,
+                expected_value="numeric value"
+            ))
+            return violations
         
-        # Validate max
-        if max_val is not None:
-            try:
-                if float(value) > float(max_val):
-                    violations.append(Violation(
-                        rule_name=rule.get('name', f'{field}_range_check'),
-                        violation_type=ViolationType.CONSTRAINT,
-                        field=field,
-                        message=f"{field} must be <= {max_val}",
-                        severity=rule.get('severity', 'error'),
-                        found_value=value,
-                        expected_value=f"<= {max_val}"
-                    ))
-            except (ValueError, TypeError):
-                if field not in [v.field for v in violations]:  # Avoid duplicate errors
-                    violations.append(Violation(
-                        rule_name=rule.get('name', f'{field}_range_check'),
-                        violation_type=ViolationType.CONSTRAINT,
-                        field=field,
-                        message=f"{field} must be a number",
-                        severity='error',
-                        found_value=value,
-                        expected_value="numeric value"
-                    ))
+        # If out of range, create violation with min/max info for auto-correction
+        if is_invalid:
+            # Build message
+            if min_val is not None and max_val is not None:
+                message = f"{field} must be between {min_val} and {max_val}"
+                expected = {"min": min_val, "max": max_val}
+            elif min_val is not None:
+                message = f"{field} must be >= {min_val}"
+                expected = {"min": min_val}
+            elif max_val is not None:
+                message = f"{field} must be <= {max_val}"
+                expected = {"max": max_val}
+            else:
+                return violations
+            
+            violations.append(Violation(
+                rule_name=rule.get('name', f'{field}_range_check'),
+                violation_type=ViolationType.CONSTRAINT,
+                field=field,
+                message=message,
+                severity=rule.get('severity', 'error'),
+                found_value=value,
+                expected_value=expected
+            ))
         
         return violations
     

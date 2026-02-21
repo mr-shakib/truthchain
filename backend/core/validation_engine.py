@@ -36,7 +36,8 @@ class ValidationResult(BaseModel):
     valid: bool
     violations: List[Violation]
     auto_corrected: bool
-    corrected_output: Optional[Dict[str, Any]]
+    corrected_output: Optional[Dict[str, Any]] = None
+    corrections_applied: Optional[List[str]] = None
     validation_id: str
     latency_ms: int
     timestamp: str
@@ -48,15 +49,27 @@ def generate_validation_id() -> str:
 
 
 class ValidationEngine:
-    def __init__(self):
+    def __init__(self, db_session=None, cache=None):
+        """
+        Initialize ValidationEngine with optional database and cache
+        
+        Args:
+            db_session: SQLAlchemy async session for reference validation
+            cache: CacheLayer instance for performance optimization
+        """
         # Import here to avoid circular imports
         from .schema_validator import SchemaValidator
         from .rule_engine import RuleEngine
+        from .context_manager import ContextManager
+        from .auto_corrector import AutoCorrector
         
         self.schema_validator = SchemaValidator()
         self.rule_engine = RuleEngine()
-        self.context_manager = None  # To be implemented in future
-        self.auto_corrector = None    # To be implemented in future
+        
+        # Advanced features (Week 9-10)
+        self.context_manager = ContextManager(db_session) if db_session else None
+        self.auto_corrector = AutoCorrector()
+        self.cache = cache
     
     async def validate(
         self,
@@ -64,7 +77,23 @@ class ValidationEngine:
         rules: List[Dict[str, Any]],
         context: Optional[Dict[str, Any]] = None
     ) -> ValidationResult:
-        """Main validation orchestration"""
+        """
+        Main validation orchestration with advanced features
+        
+        Validation pipeline:
+        1. Schema validation (structure, types)
+        2. Business rules validation (ranges, patterns, constraints)
+        3. Reference validation (database lookups) - if enabled
+        4. Auto-correction attempt - if enabled
+        
+        Args:
+            output: AI-generated output to validate
+            rules: List of validation rules to apply
+            context: Optional context (auto_correct, organization_id, etc.)
+        
+        Returns:
+            ValidationResult with status, violations, and optional corrections
+        """
         start_time = time.time()
         violations = []
         
@@ -76,21 +105,31 @@ class ValidationEngine:
         rule_violations = await self.rule_engine.validate(output, rules, context)
         violations.extend(rule_violations)
         
-        # Step 3: Reference validation (if context provided)
-        # TODO: Implement context manager for database reference validation
-        # if context and self.context_manager:
-        #     ref_violations = await self.context_manager.validate_references(
-        #         output, rules, context
-        #     )
-        #     violations.extend(ref_violations)
+        # Step 3: Reference validation (if context manager available)
+        if self.context_manager:
+            try:
+                ref_violations = await self.context_manager.validate_references(
+                    output, rules, context
+                )
+                violations.extend(ref_violations)
+            except Exception as e:
+                print(f"Reference validation error: {e}")
+                # Continue without reference validation
         
-        # Step 4: Auto-correction attempt
+        # Step 4: Auto-correction attempt (if enabled and violations exist)
         corrected_output = None
+        corrections_applied = []
         auto_corrected = False
-        # TODO: Implement auto-corrector
-        # if violations and context and context.get('auto_correct'):
-        #     corrected_output = await self.auto_corrector.fix(output, violations)
-        #     auto_corrected = corrected_output is not None
+        
+        if violations and context and context.get('auto_correct', False):
+            try:
+                corrected_output, corrections_applied = await self.auto_corrector.fix(
+                    output, violations, context
+                )
+                auto_corrected = corrected_output is not None
+            except Exception as e:
+                print(f"Auto-correction error: {e}")
+                # Continue without auto-correction
         
         # Calculate result
         latency_ms = int((time.time() - start_time) * 1000)
@@ -98,9 +137,11 @@ class ValidationEngine:
         
         # Determine status
         error_count = len([v for v in violations if v.severity == 'error'])
-        if error_count == 0:
+        warning_count = len([v for v in violations if v.severity == 'warning'])
+        
+        if error_count == 0 and warning_count == 0:
             status = ValidationStatus.PASSED
-        elif len([v for v in violations if v.severity == 'warning']) > 0 and error_count == 0:
+        elif error_count == 0 and warning_count > 0:
             status = ValidationStatus.WARNING
         else:
             status = ValidationStatus.FAILED
@@ -111,6 +152,7 @@ class ValidationEngine:
             violations=violations,
             auto_corrected=auto_corrected,
             corrected_output=corrected_output,
+            corrections_applied=corrections_applied if corrections_applied else None,
             validation_id=validation_id,
             latency_ms=latency_ms,
             timestamp=datetime.utcnow().isoformat()

@@ -77,11 +77,15 @@ async def validate(
     - Range validation (min/max values)
     - Pattern validation (regex)
     - Constraint validation (custom expressions)
+    - **NEW:** Reference validation (database lookups)
+    - **NEW:** Auto-correction of common errors
     
     **Requires authentication via X-API-Key header**
     
-    Returns validation result with any violations found and optionally
-    auto-corrected output.
+    Advanced Features (Week 9-10):
+    - Set "auto_correct": true in context to enable auto-correction
+    - Use "reference" type rules to validate database references
+    - Results include corrections_applied list when auto-corrected
     
     Args:
         request: Validation request with output, rules, and context
@@ -95,12 +99,19 @@ async def validate(
     start_time = time.time()
     
     try:
-        # Run validation
-        engine = ValidationEngine()
+        # Initialize context with organization_id for reference validation
+        context = request.context or {}
+        context["organization_id"] = organization.id
+        
+        # TODO: Get cache instance
+        # cache = await get_cache()
+        
+        # Run validation with advanced features
+        engine = ValidationEngine(db_session=db)  # Pass db for reference validation
         result = await engine.validate(
             output=request.output,
             rules=request.rules,
-            context=request.context
+            context=context
         )
         
         # Calculate latency
@@ -110,6 +121,15 @@ async def validate(
         result.latency_ms = latency_ms
         
         # Log validation to database
+        # Convert violations to JSON-serializable format
+        violations_json = []
+        if result.violations:
+            for v in result.violations:
+                v_dict = v.dict()
+                # Convert enum to string
+                v_dict['violation_type'] = v.violation_type.value
+                violations_json.append(v_dict)
+        
         validation_log = ValidationLog(
             organization_id=organization.id,
             validation_id=result.validation_id,  # Use the ID from ValidationEngine
@@ -117,7 +137,7 @@ async def validate(
             output_data=result.corrected_output if result.corrected_output else request.output,
             rules_applied=request.rules,
             result=result.status.value,
-            violations=[v.dict() for v in result.violations] if result.violations else [],
+            violations=violations_json,
             auto_corrected=result.auto_corrected,
             latency_ms=latency_ms
         )

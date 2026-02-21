@@ -20,6 +20,12 @@ DATABASE_URL = os.getenv(
     "postgresql+asyncpg://postgres:postgres@localhost:5432/truthchain"  # Local development default
 )
 
+# Redis URL for caching
+REDIS_URL = os.getenv(
+    "REDIS_URL",
+    "redis://localhost:6379/0"  # Local development default
+)
+
 # For local development outside Docker, use this:
 # DATABASE_URL = "sqlite+aiosqlite:///./truthchain.db"
 
@@ -67,3 +73,8 @@ async def init_db():
 async def close_db():
     """Close database connection"""
     await engine.dispose()
+
+
+def get_redis_url() -> str:
+    """Get Redis URL for caching"""
+    return REDIS_URL
