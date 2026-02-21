@@ -6,7 +6,7 @@ services:
     container_name: truthchain_db
     environment:
       POSTGRES_USER: truthchain
-      POSTGRES_PASSWORD: truthchain_dev_password
+      POSTGRES_PASSWORD: devpass123
       POSTGRES_DB: truthchain
     ports:
       - "5432:5432"
