@@ -6,6 +6,7 @@ import re
 from .validation_engine import Violation, ViolationType
 from .semantic_validator import SemanticValidator
 from .web_verifier import WebVerifier
+from .ml_anomaly_detector import get_ml_anomaly_detector
 
 _web_verifier: WebVerifier | None = None
 
@@ -72,6 +73,18 @@ class RuleEngine:
             elif rule_type == 'web_verify':
                 web_violations = await self._validate_web_verify(output, rule)
                 violations.extend(web_violations)
+
+            elif rule_type == 'anomaly_ml':
+                ml_violations = self._validate_anomaly_ml(output, rule, context)
+                violations.extend(ml_violations)
+
+            elif rule_type == 'enum':
+                enum_violations = self._validate_enum(output, rule)
+                violations.extend(enum_violations)
+
+            elif rule_type == 'required':
+                required_violations = self._validate_required(output, rule)
+                violations.extend(required_violations)
 
         return violations
     
@@ -489,6 +502,202 @@ class RuleEngine:
                     else "This claim appears to be contradicted by web sources."
                 ),
             ))
+
+        return violations
+
+    def _validate_anomaly_ml(
+        self,
+        output: Dict[str, Any],
+        rule: Dict[str, Any],
+        context: Optional[Dict[str, Any]],
+    ) -> List[Violation]:
+        """
+        Run IsolationForest anomaly detection on the output's numeric fields.
+
+        Rule shape::
+
+            {
+                "type": "anomaly_ml",
+                "name": "hours_anomaly",
+                "fields": ["hours", "total_cost"],   # numeric output fields to watch
+                "org_id": "org_abc",                  # overrides context.organization_id
+                "min_samples": 50,                    # skip if model not trained yet
+                "severity": "warning"                 # default: warning
+            }
+
+        The model is auto-loaded from disk if it has been previously trained and
+        saved. Call ``MLAnomalyDetector.train()`` on your org's historical data
+        to enable this rule type.
+        """
+        violations = []
+
+        fields = rule.get("fields") or []
+        severity = rule.get("severity", "warning")
+        rule_name = rule.get("name", "anomaly_ml_check")
+
+        # Determine org_id: explicit in rule > from context
+        org_id = rule.get("org_id")
+        if not org_id and context:
+            org_id = context.get("org_id") or context.get("organization_id")
+
+        if not org_id:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.STATISTICAL,
+                field="*",
+                message=(
+                    "anomaly_ml rule requires 'org_id' in the rule or context "
+                    "(e.g. context={'org_id': 'org_abc'})"
+                ),
+                severity="warning",
+                found_value=None,
+            ))
+            return violations
+
+        if not fields:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.STATISTICAL,
+                field="*",
+                message="anomaly_ml rule must specify 'fields' — list of numeric fields to monitor",
+                severity="warning",
+                found_value=None,
+            ))
+            return violations
+
+        detector = get_ml_anomaly_detector()
+
+        if not detector.is_trained(org_id):
+            # Try loading from disk silently — if still not trained, skip gracefully
+            if not detector._load(org_id):
+                violations.append(Violation(
+                    rule_name=rule_name,
+                    violation_type=ViolationType.STATISTICAL,
+                    field="*",
+                    message=(
+                        f"IsolationForest model not yet trained for org='{org_id}'. "
+                        f"Call MLAnomalyDetector.train() after collecting "
+                        f"{rule.get('min_samples', 50)}+ records."
+                    ),
+                    severity="warning",
+                    found_value=None,
+                ))
+                return violations
+
+        result = detector.score(
+            org_id=org_id,
+            sample=output,
+            fields=fields,
+            severity=severity,
+        )
+
+        if result.is_anomaly:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.STATISTICAL,
+                field=", ".join(fields),
+                message=(
+                    f"ML anomaly detected for org='{org_id}': {result.reason}"
+                ),
+                severity=severity,
+                found_value={f: self._get_nested_value(output, f) for f in fields},
+                expected_value=f"Normal range learned from historical data (IF score >= 0, got {result.raw_score:.4f})",
+                suggestion="This output pattern deviates significantly from historical norms — review for hallucination.",
+            ))
+
+        return violations
+
+    def _validate_enum(
+        self,
+        output: Dict[str, Any],
+        rule: Dict[str, Any],
+    ) -> List[Violation]:
+        """
+        Check that a field's value is one of a fixed set of allowed values.
+        Emits `expected_value={"valid_options": [...]}` so FuzzyMatchStrategy
+        can suggest the closest match and auto-correct.
+
+        Rule shape::
+            {
+                "type": "enum",
+                "field": "status",
+                "valid_options": ["pending", "approved", "rejected"],
+                "severity": "error"
+            }
+        """
+        violations: List[Violation] = []
+        field = rule.get("field")
+        valid_options: List[str] = rule.get("valid_options", [])
+
+        if not field or not valid_options:
+            return violations
+
+        value = self._get_nested_value(output, field)
+        if value is None:
+            return violations  # missing field is a `required` concern, not enum
+
+        if str(value) not in [str(v) for v in valid_options]:
+            violations.append(Violation(
+                rule_name=rule.get("name", f"{field}_enum_check"),
+                violation_type=ViolationType.CONSTRAINT,
+                field=field,
+                message=(
+                    f"{field} value '{value}' is not in allowed list: "
+                    f"{valid_options}"
+                ),
+                severity=rule.get("severity", "error"),
+                found_value=value,
+                expected_value={"valid_options": valid_options},
+                suggestion=f"Use one of: {', '.join(str(v) for v in valid_options)}",
+            ))
+
+        return violations
+
+    def _validate_required(
+        self,
+        output: Dict[str, Any],
+        rule: Dict[str, Any],
+    ) -> List[Violation]:
+        """
+        Check that a required field is present and non-null.
+        Optionally carry `default_value` in `expected_value` so
+        DefaultValueStrategy can fill it in automatically.
+
+        Rule shape::
+            {
+                "type": "required",
+                "field": "currency",
+                "default_value": "USD",   # optional — enables auto-correct
+                "severity": "error"
+            }
+        """
+        violations: List[Violation] = []
+        field = rule.get("field")
+        if not field:
+            return violations
+
+        value = self._get_nested_value(output, field)
+        if value is not None:
+            return violations  # present and non-null — OK
+
+        default_value = rule.get("default_value")
+        expected: Any = (
+            {"default_value": default_value} if default_value is not None else "non-null value"
+        )
+
+        violations.append(Violation(
+            rule_name=rule.get("name", f"{field}_required"),
+            violation_type=ViolationType.SCHEMA,
+            field=field,
+            message=f"Required field '{field}' is missing or null",
+            severity=rule.get("severity", "error"),
+            found_value=value,
+            expected_value=expected,
+            suggestion=(
+                f"Set '{field}' to '{default_value}'" if default_value is not None
+                else f"Provide a value for '{field}'"
+            ),
+        ))
 
         return violations
 

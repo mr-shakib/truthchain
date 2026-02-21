@@ -233,6 +233,127 @@ class StringTrimStrategy(CorrectionStrategy):
         target[keys[-1]] = value
 
 
+class FuzzyMatchStrategy(CorrectionStrategy):
+    """
+    For enum / reference violations: find the closest valid option using
+    difflib (stdlib — no additional install required).
+
+    Activates when ``violation.expected_value`` is a dict that contains a
+    ``"valid_options"`` key, which is what the rule engine's ``type: enum``
+    handler now emits.
+
+    Example::
+        Input  : status = "Projct-X"
+        Options: ["Project-X", "Project-Y", "Project-Z"]
+        Output : status = "Project-X"  (difflib cutoff=0.6)
+    """
+
+    def can_fix(self, violation: Violation) -> bool:
+        return (
+            isinstance(violation.expected_value, dict)
+            and "valid_options" in violation.expected_value
+            and bool(violation.expected_value["valid_options"])
+        )
+
+    def fix(
+        self, output: Dict[str, Any], violation: Violation
+    ) -> Tuple[Dict[str, Any], str]:
+        from difflib import get_close_matches
+
+        valid_options: List[str] = [
+            str(v) for v in violation.expected_value["valid_options"]
+        ]
+        current_value = self._get_field_value(output, violation.field)
+        if current_value is None:
+            return output, "Could not auto-correct: field is missing"
+
+        matches = get_close_matches(
+            str(current_value), valid_options, n=1, cutoff=0.6
+        )
+        if not matches:
+            return output, (
+                f"No fuzzy match found for '{current_value}' "
+                f"in {valid_options} (cutoff=0.6)"
+            )
+
+        corrected = deepcopy(output)
+        self._set_field_value(corrected, violation.field, matches[0])
+        return corrected, (
+            f"Fuzzy-matched {violation.field}: '{current_value}' → '{matches[0]}'"
+        )
+
+    def _get_field_value(self, data: Dict[str, Any], field: str) -> Any:
+        keys = field.split(".")
+        value = data
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key)
+            else:
+                return None
+        return value
+
+    def _set_field_value(self, data: Dict[str, Any], field: str, value: Any) -> None:
+        keys = field.split(".")
+        target = data
+        for key in keys[:-1]:
+            if key not in target:
+                target[key] = {}
+            target = target[key]
+        target[keys[-1]] = value
+
+
+class DefaultValueStrategy(CorrectionStrategy):
+    """
+    For required-field violations: fill a missing or null field with the
+    configured default value.
+
+    Activates when ``violation.expected_value`` is a dict that contains a
+    ``"default_value"`` key, which is what the rule engine's ``type: required``
+    handler now emits when the rule includes a ``default_value`` key.
+
+    Example::
+        Rule   : {"type": "required", "field": "currency", "default_value": "USD"}
+        Input  : {"amount": 100}   (no currency)
+        Output : {"amount": 100, "currency": "USD"}
+    """
+
+    def can_fix(self, violation: Violation) -> bool:
+        return (
+            isinstance(violation.expected_value, dict)
+            and "default_value" in violation.expected_value
+            and violation.expected_value["default_value"] is not None
+        )
+
+    def fix(
+        self, output: Dict[str, Any], violation: Violation
+    ) -> Tuple[Dict[str, Any], str]:
+        default = violation.expected_value["default_value"]
+        corrected = deepcopy(output)
+        self._set_field_value(corrected, violation.field, default)
+        return corrected, (
+            f"DefaultValue: set missing field '{violation.field}' = '{default}'"
+        )
+
+    def _get_field_value(self, data: Dict[str, Any], field: str) -> Any:
+        keys = field.split(".")
+        value = data
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key)
+            else:
+                return None
+        return value
+
+    def _set_field_value(self, data: Dict[str, Any], field: str, value: Any) -> None:
+        keys = field.split(".")
+        target = data
+        for key in keys[:-1]:
+            if key not in target:
+                target[key] = {}
+            target = target[key]
+        target[keys[-1]] = value
+
+
 class AutoCorrector:
     """
     Automatically corrects validation violations when possible
@@ -241,7 +362,8 @@ class AutoCorrector:
     - Range clamping (values outside min/max)
     - Type coercion (wrong type but convertible)
     - String trimming (whitespace issues)
-    - Case normalization (email, URLs, etc.)
+    - Fuzzy match (enum typos — difflib, stdlib)
+    - Default value (missing required field with configured default)
     
     Tracks all corrections applied for audit trail
     """
@@ -251,6 +373,8 @@ class AutoCorrector:
             RangeClampingStrategy(),
             TypeCoercionStrategy(),
             StringTrimStrategy(),
+            FuzzyMatchStrategy(),
+            DefaultValueStrategy(),
         ]
         self.corrections_applied: List[str] = []
     

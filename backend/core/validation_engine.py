@@ -95,14 +95,15 @@ class ValidationEngine:
         
         Validation pipeline:
         1. Schema validation (structure, types)
-        2. Business rules validation (ranges, patterns, constraints, semantic alignment, web grounding)
+        2. Business rules validation (ranges, patterns, constraints, semantic alignment, web grounding, ML anomaly)
              - range       : numeric min/max bounds
              - constraint  : eval() expression
              - pattern     : regex match
              - semantic    : cosine similarity vs context (sentence-transformers)
              - web_verify  : Tavily web search + semantic scoring (requires TAVILY_API_KEY)
+             - anomaly_ml  : per-org IsolationForest trained on historical outputs
         3. Reference validation (database lookups) - if enabled
-        4. Statistical validation & anomaly detection - if enabled
+        4. Statistical validation & anomaly detection (z-score/IQR) - if enabled
         5. Auto-correction attempt - if enabled
         6. Confidence scoring
         
