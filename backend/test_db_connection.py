@@ -1,5 +1,6 @@
 """Test database connection"""
 import asyncio
+import os
 import asyncpg
 
 async def test_connection():
@@ -9,7 +10,8 @@ async def test_connection():
         
         # Method 1: DSN string
         try:
-            conn = await asyncpg.connect('postgresql://truthchain:truthchain_dev_password@localhost:5432/truthchain')
+            db_url = os.environ.get('DATABASE_URL', 'postgresql://truthchain:CHANGE_ME@localhost:5432/truthchain')
+            conn = await asyncpg.connect(db_url)
             print('✅ Method 1 (DSN) successful!')
             await conn.close()
         except Exception as e:
@@ -22,7 +24,7 @@ async def test_connection():
                 port=5432,
                 database='truthchain',
                 user='truthchain',
-                password='devpass123'
+                password=os.environ.get('DB_PASSWORD', 'CHANGE_ME')
             )
             print('✅ Method 2 (params) successful!')
             

@@ -22,10 +22,17 @@ import os
 from groq import Groq
 from truthchain import TruthChain
 
-# ── Config — just like any other API, keys come from env vars ─────────────────
-GROQ_API_KEY       = os.getenv("GROQ_API_KEY",       "REDACTED_GROQ_KEY")
-TRUTHCHAIN_API_KEY = os.getenv("TRUTHCHAIN_API_KEY",  "REDACTED_TC_KEY")
-TRUTHCHAIN_URL     = os.getenv("TRUTHCHAIN_URL",      "http://localhost:8000")
+# ── Config — set these in your environment before running ────────────────────
+# export GROQ_API_KEY="gsk_..."
+# export TRUTHCHAIN_API_KEY="tc_live_..."
+GROQ_API_KEY       = os.getenv("GROQ_API_KEY")
+TRUTHCHAIN_API_KEY = os.getenv("TRUTHCHAIN_API_KEY")
+TRUTHCHAIN_URL     = os.getenv("TRUTHCHAIN_URL", "http://localhost:8000")
+
+if not GROQ_API_KEY:
+    raise EnvironmentError("GROQ_API_KEY environment variable is not set")
+if not TRUTHCHAIN_API_KEY:
+    raise EnvironmentError("TRUTHCHAIN_API_KEY environment variable is not set")
 
 # ── Clients — one line each, same pattern as Groq / OpenAI ───────────────────
 groq = Groq(api_key=GROQ_API_KEY)

@@ -52,10 +52,17 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
 
-# ── Config ────────────────────────────────────────────────────────────────────
-GROQ_API_KEY       = os.getenv("GROQ_API_KEY",       "REDACTED_GROQ_KEY")
-TRUTHCHAIN_API_KEY = os.getenv("TRUTHCHAIN_API_KEY",  "REDACTED_TC_KEY")
-TRUTHCHAIN_URL     = os.getenv("TRUTHCHAIN_URL",      "http://localhost:8000")
+# ── Config — set these in your environment before running ────────────────────
+# export GROQ_API_KEY="gsk_..."
+# export TRUTHCHAIN_API_KEY="tc_live_..."
+GROQ_API_KEY       = os.getenv("GROQ_API_KEY")
+TRUTHCHAIN_API_KEY = os.getenv("TRUTHCHAIN_API_KEY")
+TRUTHCHAIN_URL     = os.getenv("TRUTHCHAIN_URL", "http://localhost:8000")
+
+if not GROQ_API_KEY:
+    raise EnvironmentError("GROQ_API_KEY environment variable is not set")
+if not TRUTHCHAIN_API_KEY:
+    raise EnvironmentError("TRUTHCHAIN_API_KEY environment variable is not set")
 
 MAX_CONCURRENT     = 3      # max parallel validations (respect rate limits)
 MAX_RETRIES        = 3      # retry attempts on transient errors
