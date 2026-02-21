@@ -354,6 +354,91 @@ class DefaultValueStrategy(CorrectionStrategy):
         target[keys[-1]] = value
 
 
+class LLMRewriteStrategy(CorrectionStrategy):
+    """
+    Re-prompts the LLM to fix its own output when a semantic violation survives.
+
+    Activates only if:
+    - The violation type is SEMANTIC (or the rule_name contains 'semantic').
+    - A Groq or OpenAI API key is configured (or the 'llm_proxy' context key
+      provides a callable that accepts a prompt string and returns a string).
+
+    Falls back gracefully (no-op) when no key is available.
+    """
+
+    def can_fix(self, violation: Violation) -> bool:
+        """Fix semantic violations when an LLM key is available."""
+        is_semantic = (
+            (violation.violation_type == ViolationType.SEMANTIC)
+            or ("semantic" in violation.rule_name.lower())
+        )
+        if not is_semantic:
+            return False
+        try:
+            from ..config.settings import settings
+            return bool(settings.GROQ_API_KEY or settings.OPENAI_API_KEY)
+        except Exception:
+            return False
+
+    def fix(self, output: Dict[str, Any], violation: Violation) -> Tuple[Dict[str, Any], str]:
+        """
+        Synchronous wrapper — runs a corrective LLM call using asyncio.
+        If the event loop is already running (FastAPI async context) this
+        will use a thread executor; in a plain synchronous test it creates
+        a new loop.
+        """
+        import asyncio
+
+        field = violation.field
+        bad_value = output.get(field, "")
+
+        async def _rewrite() -> str:
+            from .llm_proxy import LLMProxy
+            from ..config.settings import settings
+            provider  = "groq" if settings.GROQ_API_KEY else "openai"
+            proxy = LLMProxy()
+            result = await proxy.complete(
+                provider=provider,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a fact-correction assistant. "
+                            "The user will tell you a field name, a bad value, and a violation message. "
+                            "Reply with ONLY the corrected value — no explanation, no punctuation, just the value."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Field: {field}\n"
+                            f"Bad value: {bad_value}\n"
+                            f"Violation: {violation.message}\n"
+                            "Corrected value:"
+                        ),
+                    },
+                ],
+                validation_rules=[],   # no recursive validation on the correction
+            )
+            return result.content.strip()
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(asyncio.run, _rewrite())
+                    new_value = future.result(timeout=30)
+            else:
+                new_value = loop.run_until_complete(_rewrite())
+        except Exception as exc:
+            return output, f"LLMRewriteStrategy failed: {exc}"
+
+        corrected = deepcopy(output)
+        corrected[field] = new_value
+        return corrected, f"LLM rewrote '{field}': '{bad_value}' → '{new_value}'"
+
+
 class AutoCorrector:
     """
     Automatically corrects validation violations when possible
@@ -364,6 +449,7 @@ class AutoCorrector:
     - String trimming (whitespace issues)
     - Fuzzy match (enum typos — difflib, stdlib)
     - Default value (missing required field with configured default)
+    - LLM rewrite (semantic violations — re-prompts the LLM)
     
     Tracks all corrections applied for audit trail
     """
@@ -375,6 +461,7 @@ class AutoCorrector:
             StringTrimStrategy(),
             FuzzyMatchStrategy(),
             DefaultValueStrategy(),
+            LLMRewriteStrategy(),
         ]
         self.corrections_applied: List[str] = []
     

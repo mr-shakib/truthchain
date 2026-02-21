@@ -33,6 +33,8 @@ class Settings(BaseSettings):
 
     # External AI / Search APIs
     TAVILY_API_KEY: str = ""   # https://app.tavily.com — required for web_verify rule type
+    GROQ_API_KEY:   str = ""   # https://console.groq.com  — free, required for LLM proxy (Groq)
+    OPENAI_API_KEY: str = ""   # https://platform.openai.com — optional for LLM proxy (OpenAI)
 
     @property
     def cors_origins_list(self) -> List[str]:

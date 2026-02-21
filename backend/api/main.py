@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 from contextlib import asynccontextmanager
 
-from .routes import validation, auth, analytics, health, billing
+from .routes import validation, auth, analytics, health, billing, proxy
 from ..db.connection import init_db, close_db
 from ..config.settings import settings
 
@@ -57,6 +57,7 @@ app.include_router(auth.router)
 app.include_router(analytics.router)
 app.include_router(health.router)
 app.include_router(billing.router)
+app.include_router(proxy.router)
 
 @app.get("/")
 async def root():

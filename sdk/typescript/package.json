@@ -1,0 +1,36 @@
+{
+  "name": "@truthchain/node",
+  "version": "1.0.0",
+  "description": "TypeScript/JavaScript SDK for the TruthChain AI-validation API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "demo": "node dist/demo.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai",
+    "validation",
+    "llm",
+    "hallucination",
+    "fact-checking",
+    "truthchain"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/truthchain/truthchain"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.0.0"
+  }
+}
