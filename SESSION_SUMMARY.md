@@ -1,18 +1,20 @@
 # TruthChain Development - Session Summary
 
-**Last Updated:** February 21, 2026  
-**Project Phase:** Week 15-16 (Frontend Dashboard — NEXT UP)  
-**Backend Status:** ✅ Complete & Production-Ready (Weeks 3-14 done)
+**Last Updated:** February 22, 2026  
+**Project Phase:** Week 17-18 (Subscription & Billing — NEXT UP)  
+**Backend Status:** ✅ Complete & Production-Ready  
+**Frontend Status:** ✅ Complete & Integrated  
+**Git:** `https://github.com/mr-shakib/truthchain.git` (main, latest commit `d3a2ce9`)
 
 ---
 
 ## 🎯 Project Overview
 
-**TruthChain** is an AI validation SaaS platform that validates AI-generated outputs against schemas, business rules, and real-world context. The backend is fully built and tested. This session continues with **Priority 5: Frontend Dashboard**.
+**TruthChain** is an AI validation SaaS platform that validates AI-generated outputs against schemas, business rules, and real-world context. Both backend and frontend are fully built and integrated. The next priority is **Subscription & Billing**.
 
 ---
 
-## ✅ Backend — Fully Completed
+## ✅ Completed Phases
 
 | Phase | Week | Feature | Status |
 |-------|------|---------|--------|
@@ -22,41 +24,37 @@
 | Advanced Validation | 9-10 | Auto-correction, reference validation, Redis caching | ✅ |
 | Statistical Validation | 11-12 | Anomaly detection, confidence scoring, drift detection | ✅ |
 | Production Readiness | 13-14 | Rate limiting, audit logging, health monitoring, key rotation | ✅ |
+| Frontend Dashboard | 15-16 | Full Next.js dashboard, auth flow, all pages integrated | ✅ |
 
 ---
 
-## 🚀 Starting the Backend
+## 🚀 Quick Start (Both Services)
 
-Before working on the frontend, start all backend services:
-
-### Step 1 — Verify PostgreSQL
+### 1 — Start PostgreSQL + Redis (Docker)
 ```powershell
-psql -U postgres -d truthchain -c "SELECT COUNT(*) FROM organizations;"
+docker start truthchain_db truthchain_redis
 ```
 
-### Step 2 — Start Redis
-```powershell
-# Check if running
-docker ps --filter "name=truthchain_redis"
-
-# Start if stopped
-docker start truthchain_redis
-```
-
-### Step 3 — Start API Server
+### 2 — Start Backend (port 8888)
 ```powershell
 cd D:\Personal\Project\AI-Engineering\ai-labs\truthchain
 .\venv\Scripts\python.exe -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8888 --reload
 ```
 
-### Step 4 — Verify Health
+### 3 — Start Frontend (port 3000)
 ```powershell
-.\venv\Scripts\python.exe -c "import requests; r = requests.get('http://localhost:8888/health/live'); print(r.status_code, r.json())"
-# Expected: 200 {'status': 'alive', ...}
+cd D:\Personal\Project\AI-Engineering\ai-labs\truthchain\frontend
+npm run dev
 ```
 
-**API Base URL:** `http://localhost:8888`  
-**Interactive Docs:** `http://localhost:8888/docs`
+### 4 — Verify Health
+```powershell
+Invoke-WebRequest -Uri "http://localhost:8888/health/live" -UseBasicParsing | Select-Object -ExpandProperty Content
+# Expected: {"status":"alive",...}
+```
+
+**Backend Docs:** `http://localhost:8888/docs`  
+**Frontend:** `http://localhost:3000`
 
 ---
 
@@ -64,39 +62,53 @@ cd D:\Personal\Project\AI-Engineering\ai-labs\truthchain
 
 ```
 D:\Personal\Project\AI-Engineering\ai-labs\truthchain\
-├── backend/                       # FastAPI backend (COMPLETE — do not modify)
+├── backend/
 │   ├── api/
 │   │   ├── main.py                # App entry point, CORS, lifespan
 │   │   ├── dependencies.py        # Auth, rate limit, quota FastAPI deps
 │   │   └── routes/
-│   │       ├── auth.py            # /v1/auth/* endpoints
-│   │       ├── validation.py      # /v1/validate endpoint (rate-limited)
-│   │       ├── analytics.py       # /v1/analytics/* endpoints
-│   │       └── health.py          # /health/* endpoints
+│   │       ├── auth.py            # /v1/auth/* (signup, login, api-keys)
+│   │       ├── validation.py      # /v1/validate (rate-limited)
+│   │       ├── analytics.py       # /v1/analytics/*
+│   │       └── health.py          # /health/*
 │   ├── core/
-│   │   ├── validation_engine.py   # 6-step validation pipeline
-│   │   ├── auto_corrector.py      # Automatic violation fixing
-│   │   ├── anomaly_detector.py    # AI hallucination pattern detection
-│   │   ├── confidence_scorer.py   # Multi-factor confidence scoring
-│   │   ├── rate_limiter.py        # Redis sliding window rate limiting
-│   │   ├── audit_logger.py        # Audit trail (12 event types)
-│   │   └── health_checker.py      # PostgreSQL, Redis, app health
+│   │   ├── validation_engine.py
+│   │   ├── auto_corrector.py
+│   │   ├── anomaly_detector.py
+│   │   ├── confidence_scorer.py
+│   │   ├── rate_limiter.py
+│   │   ├── audit_logger.py
+│   │   └── health_checker.py
 │   ├── models/
-│   │   ├── organization.py
-│   │   ├── api_key.py
+│   │   ├── organization.py        # tier, monthly_quota, email, password_hash
+│   │   ├── api_key.py             # key_hash, key_prefix (VARCHAR 20), name
 │   │   ├── validation_log.py
 │   │   └── audit_log.py
-│   ├── config/settings.py         # Pydantic settings (reads .env)
-│   ├── alembic/                   # Database migrations (applied)
+│   ├── alembic/versions/
+│   │   ├── 001_*.py .. 003_audit_logs.py
+│   │   └── 004_api_key_prefix.py  # ← latest applied migration
 │   └── requirements.txt
-├── frontend/                      # ← BUILD THIS (Next.js skeleton exists)
+├── frontend/
 │   ├── app/
-│   │   ├── layout.tsx
-│   │   ├── page.tsx               # Currently: Next.js default page
-│   │   └── globals.css
-│   ├── package.json               # Next.js 15, TypeScript, Tailwind configured
-│   ├── next.config.ts
-│   └── tsconfig.json
+│   │   ├── layout.tsx             # suppressHydrationWarning on <body>
+│   │   ├── page.tsx               # Landing page (Void Observatory dark theme)
+│   │   ├── login/page.tsx         # Email + password login form
+│   │   ├── signup/page.tsx        # Signup + API key reveal (shown once)
+│   │   └── dashboard/
+│   │       ├── layout.tsx         # DashboardLayout with Sidebar
+│   │       ├── page.tsx           # Overview stats + daily chart
+│   │       ├── api-keys/page.tsx  # List, create, revoke, rotate keys
+│   │       ├── validate/page.tsx  # Live validation playground
+│   │       ├── history/page.tsx   # Validation history table
+│   │       └── settings/page.tsx  # Usage stats + quota bar
+│   ├── components/
+│   │   ├── Sidebar.tsx
+│   │   └── StatCard.tsx
+│   ├── lib/
+│   │   ├── api.ts                 # All API calls with field mapping
+│   │   ├── types.ts               # TypeScript types for all endpoints
+│   │   └── auth.ts                # localStorage auth helpers
+│   └── package.json               # Next.js 15, Tailwind, Recharts, Zod
 ├── venv/                          # Python virtual environment
 ├── .env                           # Backend environment config
 ├── test_production_features.py    # Integration tests (4/4 passing)
@@ -120,8 +132,8 @@ Password: nacht0905
 
 | Table | Key Columns |
 |-------|-------------|
-| `organizations` | id (UUID), name, email, tier, monthly_quota, created_at |
-| `api_keys` | id (UUID), organization_id, key_hash, revoked_at, last_used_at |
+| `organizations` | id (UUID), name, email, password_hash, tier, monthly_quota, created_at |
+| `api_keys` | id (UUID), organization_id, key_hash, **key_prefix** (VARCHAR 20), name, revoked_at, last_used_at |
 | `validation_logs` | id (UUID), organization_id, status, violations (JSONB), latency_ms, auto_corrected |
 | `audit_logs` | id (UUID), event_type, event_category, actor_email, ip_address, event_metadata (JSONB) |
 
@@ -151,29 +163,37 @@ SECRET_KEY=your-secret-key-here-change-in-production
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/v1/auth/signup` | ❌ | Create org + get first API key |
+| `POST` | `/v1/auth/signup` | ❌ | Create org + returns first API key |
+| `POST` | `/v1/auth/login` | ❌ | Email + password → fresh API key |
 | `POST` | `/v1/auth/api-keys` | ✅ | Create additional API key |
-| `GET` | `/v1/auth/api-keys` | ✅ | List all API keys for org |
+| `GET` | `/v1/auth/api-keys` | ✅ | List all keys (includes `key_prefix`) |
 | `DELETE` | `/v1/auth/api-keys/{id}` | ✅ | Revoke a key |
 | `POST` | `/v1/auth/api-keys/{id}/rotate` | ✅ | Rotate (revoke + create new) |
 
-#### POST /v1/auth/signup
+#### Signup / Login Response Shape
 ```json
-// Request
-{ "name": "My Company", "email": "admin@example.com", "password": "SecurePass123!", "tier": "free" }
-
-// Response 201
-{ "organization_id": "uuid", "name": "My Company", "tier": "free", "api_key": "tc_live_...", "monthly_quota": 1000 }
-```
-
-#### POST /v1/auth/api-keys/{id}/rotate
-```json
-// Response 200
 {
-  "old_key": { "id": "uuid", "is_active": false, "revoked_at": "..." },
-  "new_key": { "id": "uuid", "key_value": "tc_live_new...", "is_active": true }
+  "organization_id": "uuid",
+  "name": "My Org",
+  "email": "user@example.com",
+  "tier": "free",
+  "api_key": "tc_live_...",
+  "monthly_quota": 1000
 }
 ```
+
+#### API Key List Item Shape
+```json
+{
+  "id": "uuid",
+  "key_prefix": "tc_live_abc123def456",
+  "name": "My Key",
+  "is_active": true,
+  "created_at": "2026-02-22T10:00:00Z",
+  "last_used_at": "2026-02-22T12:00:00Z"
+}
+```
+> `key_prefix` is `null` for keys created before migration 004 — frontend shows "rotate to reveal prefix"
 
 ### Validation Endpoint
 
@@ -225,21 +245,21 @@ SECRET_KEY=your-secret-key-here-change-in-production
 | `GET` | `/v1/analytics/recent-validations?limit=10` | ✅ | History table rows |
 | `GET` | `/v1/analytics/top-violations?limit=10` | ✅ | Most frequent violations |
 
-#### GET /v1/analytics/overview (use for dashboard hero cards)
+#### GET /v1/analytics/overview — backend returns nested shape (frontend flattens it)
 ```json
 {
-  "total_validations": 142,
-  "passed": 130,
-  "failed": 12,
-  "success_rate": 91.5,
-  "avg_latency_ms": 18.3,
-  "quota_used": 142,
-  "quota_total": 1000,
-  "quota_percentage": 14.2
+  "validation_stats": {
+    "total_validations": 142, "passed": 130, "failed": 12,
+    "success_rate": 91.5, "average_latency_ms": 18.3
+  },
+  "usage_stats": {
+    "current_usage": 142, "monthly_quota": 1000, "usage_percentage": 14.2
+  }
 }
 ```
+> `api.ts overview()` flattens this into `OverviewStats` with renamed fields (`avg_latency_ms`, `quota_used`, etc.)
 
-#### GET /v1/analytics/daily-stats (use for line/bar chart)
+#### GET /v1/analytics/daily-stats
 ```json
 [
   { "date": "2026-02-15", "total": 23, "passed": 21, "failed": 2, "avg_latency_ms": 15.2 },
@@ -275,80 +295,140 @@ Rate limit exceeded → HTTP 429:
 
 ---
 
-## 🎨 Priority 5: Frontend Dashboard
+## 🔑 Frontend Auth Flow (Implemented)
 
-The `frontend/` directory has a Next.js 15 + TypeScript + Tailwind skeleton. Build on it.
+1. **Signup** → `POST /v1/auth/signup` → save `api_key` to localStorage, show once
+2. **Login** → `POST /v1/auth/login` (email + password) → save `api_key` + org metadata to localStorage
+3. **All dashboard API calls** → `X-API-Key: {storedKey}` header via `createAuthApi()` in `lib/api.ts`
+4. **Logout** → clear localStorage, redirect to `/login`
 
-### Pages to Build
+**localStorage keys used:**
+- `tc_api_key` — raw API key
+- `tc_org_name` — organization display name
+- `tc_org_id` — organization UUID
+- `tc_tier` — subscription tier
 
-| Page | Route | Key API Calls |
-|------|-------|---------------|
-| Landing | `/` | None (static marketing) |
-| Sign Up | `/signup` | `POST /v1/auth/signup` |
-| Login | `/login` | `GET /v1/auth/api-keys` (verify key) |
-| Dashboard | `/dashboard` | `GET /v1/analytics/overview`, `GET /v1/analytics/daily-stats` |
-| API Keys | `/dashboard/api-keys` | `GET/POST/DELETE /v1/auth/api-keys`, `POST .../rotate` |
-| Validate | `/dashboard/validate` | `POST /v1/validate` |
-| History | `/dashboard/history` | `GET /v1/analytics/recent-validations` |
-| Settings | `/dashboard/settings` | `GET /v1/analytics/usage-stats` |
+---
 
-### Auth Strategy
+## 🎯 Priority 6: Subscription & Billing — NEXT UP
 
-The backend uses **API key auth** (`X-API-Key` header), not JWT sessions.
+### Goal
+Implement a proper subscription and billing system so users can upgrade/downgrade their tier, view invoices, and manage payment methods — replacing the current hardcoded tier assignment at signup.
 
-Recommended flow:
-1. User signs up → backend returns `api_key`
-2. Store in `localStorage` (or secure cookie)
-3. All API calls: `headers: { 'X-API-Key': storedKey }`
-4. Keys don't expire — only revoked manually
+### Recommended Approach
 
-### Starting the Frontend Dev Server
+#### Option A — Stripe Integration (Recommended for production)
+- Stripe Checkout for payment collection
+- Stripe webhooks to update `organizations.tier` automatically
+- Stripe Customer Portal for self-service billing management
+
+#### Option B — Manual / Simulated Billing (Faster for MVP)
+- Admin endpoint to change tier
+- Simulated invoice records in DB
+- No real payment processing
+
+### Backend Changes Needed
+
+1. **New DB columns on `organizations`:**
+   - `stripe_customer_id VARCHAR(64)` — Stripe customer reference
+   - `stripe_subscription_id VARCHAR(64)` — active subscription
+   - `billing_email VARCHAR(255)` — billing contact
+   - `subscription_status ENUM('active','past_due','canceled','trialing')`
+   - `current_period_end TIMESTAMP` — when billing period ends
+   - `canceled_at TIMESTAMP` — if/when subscription was canceled
+
+2. **New Alembic migration:** `005_subscription_billing`
+
+3. **New API routes** (`/v1/billing/*`):
+   - `POST /v1/billing/checkout` — create Stripe checkout session
+   - `GET /v1/billing/subscription` — current subscription details
+   - `POST /v1/billing/portal` — redirect to Stripe Customer Portal
+   - `POST /v1/billing/cancel` — cancel subscription
+   - `GET /v1/billing/invoices` — list invoices
+   - `POST /v1/webhooks/stripe` — Stripe webhook handler (update tier on payment)
+
+4. **Update quota enforcement** in `dependencies.py` to check `subscription_status`
+
+5. **New Pydantic models:**
+   - `SubscriptionResponse` — `{ tier, status, current_period_end, quota_used, quota_total }`
+   - `CheckoutSessionResponse` — `{ checkout_url, session_id }`
+   - `InvoiceItem` — `{ id, amount, currency, status, created_at, pdf_url }`
+
+### Frontend Changes Needed
+
+1. **New page: `/dashboard/billing`**
+   - Current plan card (tier name, price, limits)
+   - Upgrade/downgrade tier selection UI
+   - Quota usage bar
+   - Invoice history table
+   - Cancel subscription button
+
+2. **Update `Sidebar.tsx`** — add "Billing" nav item
+
+3. **Update `settings/page.tsx`** — link to `/dashboard/billing`
+
+4. **New `lib/billing.ts`** — billing-specific API calls
+
+5. **Update `types.ts`** — `SubscriptionResponse`, `InvoiceItem`, `CheckoutSessionResponse`
+
+### Tier Pricing (Suggested)
+| Tier | Price/month | req/min | Monthly Quota |
+|------|-------------|---------|---------------|
+| Free | $0 | 10 | 1,000 |
+| Startup | $29 | 30 | 10,000 |
+| Business | $99 | 100 | 100,000 |
+| Enterprise | $499 | 500 | 1,000,000 |
+
+### Stripe Setup (Option A)
 ```powershell
-cd D:\Personal\Project\AI-Engineering\ai-labs\truthchain\frontend
-npm install
-npm run dev     # → http://localhost:3000
-```
+# Install stripe library
+cd D:\Personal\Project\AI-Engineering\ai-labs\truthchain
+.\venv\Scripts\pip install stripe
 
-### CORS — Add Frontend Origin to Backend
+# Add to .env
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_ID_STARTUP=price_...
+STRIPE_PRICE_ID_BUSINESS=price_...
+STRIPE_PRICE_ID_ENTERPRISE=price_...
 
-Edit `backend/api/main.py` to allow `localhost:3000`:
-```python
-allow_origins=["http://localhost:3000", "http://localhost:8888"]
-```
-
-### Recommended Packages to Add
-```powershell
-npm install @tanstack/react-query axios recharts
-npm install react-hook-form zod @hookform/resolvers
-npm install @radix-ui/react-dialog @radix-ui/react-dropdown-menu
-npm install lucide-react clsx tailwind-merge
+# Forward webhooks locally
+stripe listen --forward-to localhost:8888/v1/webhooks/stripe
 ```
 
 ---
 
 ## 🔧 Troubleshooting
 
-### API server won't start (port in use)
+### Kill port 8888
 ```powershell
 Get-NetTCPConnection -LocalPort 8888 -ErrorAction SilentlyContinue |
   ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
 ```
 
-### Run full backend test suite
-```powershell
-cd D:\Personal\Project\AI-Engineering\ai-labs\truthchain
-.\venv\Scripts\python.exe test_production_features.py
-# Expected: 4/4 PASSED
-```
-
-### Check audit logs in database
-```sql
-SELECT event_type, action, status, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 10;
-```
-
-### Re-run database migrations
+### Re-run DB migrations
 ```powershell
 cd D:\Personal\Project\AI-Engineering\ai-labs\truthchain\backend
 alembic upgrade head
+```
+
+### Check current migration state
+```powershell
+cd D:\Personal\Project\AI-Engineering\ai-labs\truthchain\backend
+alembic current
+# Should show: 004_api_key_prefix (head)
+```
+
+### TypeScript check (frontend)
+```powershell
+cd D:\Personal\Project\AI-Engineering\ai-labs\truthchain\frontend
+npx tsc --noEmit
+# Expected: 0 errors
+```
+
+### Check audit logs
+```sql
+SELECT event_type, action, status, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 10;
 ```
 

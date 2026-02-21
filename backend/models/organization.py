@@ -2,11 +2,12 @@
 Organization Model - Multi-tenant support
 """
 from enum import Enum
-from sqlalchemy import String, Integer
+from sqlalchemy import String, Integer, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db.base import Base, TimestampMixin
 import uuid
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 
 
 class OrganizationTier(str, Enum):
@@ -45,7 +46,28 @@ class Organization(Base, TimestampMixin):
     monthly_quota: Mapped[int] = mapped_column(Integer, default=10000, nullable=False)
     
     usage_current_month: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    
+
+    # ── Subscription / Billing ─────────────────────────────────────────────
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    billing_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # 'active' | 'past_due' | 'canceled' | 'trialing'
+    subscription_status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+
+    current_period_end: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    canceled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    trial_ends_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Serialised invoice history (list of InvoiceItem dicts)
+    invoices_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     api_keys: Mapped[List["APIKey"]] = relationship(
         "APIKey",

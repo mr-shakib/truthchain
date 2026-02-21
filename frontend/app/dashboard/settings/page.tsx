@@ -5,8 +5,9 @@ import { useAuth } from '@/lib/auth';
 import { createAuthApi, getApiError } from '@/lib/api';
 import type { UsageStats } from '@/lib/types';
 import { formatNumber, tierColor } from '@/lib/utils';
-import { Settings, Zap, Shield, RefreshCw, ExternalLink, LogOut } from 'lucide-react';
+import { Settings, Zap, Shield, RefreshCw, ExternalLink, LogOut, CreditCard } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 const TIER_LIMITS: Record<string, { rpm: number; quota: string; features: string[] }> = {
   free: {
@@ -139,6 +140,22 @@ export default function SettingsPage() {
               }}>{f}</span>
             ))}
           </div>
+        </div>
+
+        {/* Billing link */}
+        <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <p style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)', marginBottom: '3px' }}>
+              Subscription &amp; Billing
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Upgrade plan, manage invoices, or cancel subscription.</p>
+          </div>
+          <Link href="/dashboard/billing" style={{ textDecoration: 'none' }}>
+            <button className="tc-btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '9px 14px', whiteSpace: 'nowrap' }}>
+              <CreditCard size={13} />
+              Manage Billing
+            </button>
+          </Link>
         </div>
       </div>
 

@@ -53,13 +53,21 @@ async def require_quota(
             ...
     """
     organization, api_key = org_data
-    
+
+    # Block if subscription is canceled or past_due
+    status = organization.subscription_status or "active"
+    if status in ("canceled", "past_due"):
+        raise HTTPException(
+            status_code=402,
+            detail=f"Subscription {status}. Please update your billing to continue using the API."
+        )
+
     if not check_quota(organization):
         raise HTTPException(
             status_code=429,
             detail=f"Monthly quota exhausted. Quota: {organization.monthly_quota}, Used: {organization.usage_current_month}"
         )
-    
+
     return organization, api_key
 
 
