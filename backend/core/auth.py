@@ -65,10 +65,12 @@ async def create_api_key(
     plain_key = generate_api_key()
     key_hash = hash_api_key(plain_key)
     
-    # Create database record
+    # Create database record (store a short prefix for display/identification)
+    key_prefix = plain_key[:20]
     api_key = APIKey(
         organization_id=organization_id,
         key_hash=key_hash,
+        key_prefix=key_prefix,
         name=name,
         is_active=True
     )

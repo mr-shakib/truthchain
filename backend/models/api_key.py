@@ -34,6 +34,11 @@ class APIKey(Base, TimestampMixin):
         nullable=False,
         index=True
     )
+
+    key_prefix: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True
+    )
     
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     

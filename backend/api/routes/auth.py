@@ -46,7 +46,8 @@ class APIKeyResponse(BaseModel):
     """API key information"""
     id: str  # UUID string
     name: str
-    key: Optional[str] = None  # Only included on creation
+    key: Optional[str] = None       # Full plain key — only on creation
+    key_prefix: Optional[str] = None  # First 20 chars for display
     is_active: bool
     created_at: str
     last_used_at: Optional[str] = None
@@ -141,6 +142,62 @@ async def signup(
         )
 
 
+class LoginRequest(BaseModel):
+    """Login request using email and password"""
+    email: EmailStr = Field(..., description="Organization email")
+    password: str = Field(..., description="Account password")
+
+
+class LoginResponse(BaseModel):
+    """Login response — returns org info and a fresh API key"""
+    organization_id: str
+    name: str
+    email: str
+    tier: str
+    api_key: str
+    monthly_quota: int
+
+
+@router.post("/login", response_model=LoginResponse)
+async def login(
+    login_req: LoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Login with email and password.
+
+    Verifies credentials and issues a fresh API key for dashboard access.
+    Previous keys remain valid and can be managed from the dashboard.
+    """
+    from sqlalchemy import select
+
+    # Find the organisation
+    result = await db.execute(
+        select(Organization).where(Organization.email == login_req.email)
+    )
+    org = result.scalar_one_or_none()
+
+    if not org or not verify_password(login_req.password, org.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Issue a fresh API key for this login session
+    api_key_obj, plain_key = await create_api_key(
+        db,
+        org.id,
+        name="Dashboard login key"
+    )
+
+    return LoginResponse(
+        organization_id=org.id,
+        name=org.name,
+        email=org.email,
+        tier=org.tier if isinstance(org.tier, str) else org.tier.value,
+        api_key=plain_key,
+        monthly_quota=org.monthly_quota,
+    )
+
+
 @router.post("/api-keys", response_model=APIKeyResponse, status_code=201)
 async def create_new_api_key(
     name: str = "API Key",
@@ -181,6 +238,7 @@ async def create_new_api_key(
         id=api_key_obj.id,
         name=api_key_obj.name,
         key=plain_key,  # Only shown on creation
+        key_prefix=api_key_obj.key_prefix,
         is_active=api_key_obj.is_active,
         created_at=api_key_obj.created_at.isoformat(),
         last_used_at=api_key_obj.last_used_at.isoformat() if api_key_obj.last_used_at else None
@@ -215,6 +273,7 @@ async def list_api_keys(
         APIKeyResponse(
             id=key.id,
             name=key.name,
+            key_prefix=key.key_prefix,
             is_active=key.is_active,
             created_at=key.created_at.isoformat(),
             last_used_at=key.last_used_at.isoformat() if key.last_used_at else None
@@ -288,6 +347,7 @@ async def rotate_api_key(
         id=new_api_key.id,
         name=new_api_key.name,
         key=plain_key,  # Only shown on creation
+        key_prefix=new_api_key.key_prefix,
         is_active=new_api_key.is_active,
         created_at=new_api_key.created_at.isoformat(),
         last_used_at=None
