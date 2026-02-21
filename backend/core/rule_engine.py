@@ -7,6 +7,7 @@ from .validation_engine import Violation, ViolationType
 from .semantic_validator import SemanticValidator
 from .web_verifier import WebVerifier
 from .ml_anomaly_detector import get_ml_anomaly_detector
+from .external_reference import ExternalReferenceValidator, ConnectorResult
 
 _web_verifier: WebVerifier | None = None
 
@@ -85,6 +86,10 @@ class RuleEngine:
             elif rule_type == 'required':
                 required_violations = self._validate_required(output, rule)
                 violations.extend(required_violations)
+
+            elif rule_type == 'external_ref':
+                ext_violations = await self._validate_external_ref(output, rule)
+                violations.extend(ext_violations)
 
         return violations
     
@@ -603,6 +608,111 @@ class RuleEngine:
                 found_value={f: self._get_nested_value(output, f) for f in fields},
                 expected_value=f"Normal range learned from historical data (IF score >= 0, got {result.raw_score:.4f})",
                 suggestion="This output pattern deviates significantly from historical norms — review for hallucination.",
+            ))
+
+        return violations
+
+    async def _validate_external_ref(
+        self,
+        output: Dict[str, Any],
+        rule: Dict[str, Any],
+    ) -> List[Violation]:
+        """
+        Call a registered external-reference connector and produce a violation
+        when the connector returns ``exists=False``.
+
+        Rule shape::
+
+            {
+                "type": "external_ref",
+                "field": "sehri_time",         # field whose value is passed to the connector
+                "connector": "aladhan_fajr_in_range",
+                "params": {                     # optional kwargs forwarded to the connector
+                    "city": "Dhaka",
+                    "country": "Bangladesh",
+                    "tolerance_minutes": 15
+                },
+                "severity": "error"
+            }
+        """
+        violations: List[Violation] = []
+        field = rule.get("field")
+        connector_name = rule.get("connector", "")
+        params: Dict[str, Any] = rule.get("params") or {}
+        severity = rule.get("severity", "error")
+        rule_name = rule.get("name", f"{field}_external_ref")
+        timeout = float(rule.get("timeout", 10.0))
+
+        if not field:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field="unknown",
+                message="external_ref rule must specify 'field'",
+                severity="warning",
+                found_value=None,
+            ))
+            return violations
+
+        if not connector_name:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message="external_ref rule must specify 'connector'",
+                severity="warning",
+                found_value=None,
+            ))
+            return violations
+
+        value = self._get_nested_value(output, field)
+
+        # Connector not registered — soft warning, never crash
+        if connector_name not in ExternalReferenceValidator.registered_names():
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message=(
+                    f"Connector '{connector_name}' is not registered. "
+                    f"Available: {ExternalReferenceValidator.registered_names()}"
+                ),
+                severity="warning",
+                found_value=value,
+            ))
+            return violations
+
+        try:
+            result: ConnectorResult = await ExternalReferenceValidator.check(
+                connector_name=connector_name,
+                value=value,
+                params=params,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message=f"External reference check failed: {exc}",
+                severity="warning",
+                found_value=value,
+            ))
+            return violations
+
+        if not result.exists:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message=(
+                    rule.get("message")
+                    or f"External reference check failed ({connector_name}): {result.detail}"
+                ),
+                severity=severity,
+                found_value=value,
+                expected_value=f"Connector '{connector_name}' must return exists=True",
+                suggestion=result.detail,
             ))
 
         return violations
