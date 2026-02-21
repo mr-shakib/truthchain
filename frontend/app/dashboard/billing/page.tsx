@@ -1,21 +1,22 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
 import { createBillingApi, getApiError } from '@/lib/billing';
 import type { SubscriptionDetails, InvoiceItem } from '@/lib/types';
 import {
-  CheckCircle2, XCircle, RefreshCw,
+  CreditCard, CheckCircle2, XCircle, RefreshCw,
   ChevronUp, ChevronDown, Receipt, AlertTriangle, Star,
   Zap, Rocket, Building2, Crown,
 } from 'lucide-react';
 
-// ─── Static plan catalogue — renders immediately, no API needed ──────────────
+// ─── Static plan catalogue (renders immediately, no API needed) ─────────────
 
 const PLANS = [
   {
-    tier: 'free' as const,
+    tier: 'free',
     label: 'Free',
+    price_cents: 0,
     price_display: '$0 / month',
     monthly_quota: 1000,
     rpm: 10,
@@ -24,8 +25,9 @@ const PLANS = [
     features: ['10 req / min', '1,000 validations / mo', 'Schema validation', 'Basic rules'],
   },
   {
-    tier: 'startup' as const,
+    tier: 'startup',
     label: 'Startup',
+    price_cents: 2900,
     price_display: '$29 / month',
     monthly_quota: 10000,
     rpm: 30,
@@ -35,8 +37,9 @@ const PLANS = [
     popular: true,
   },
   {
-    tier: 'business' as const,
+    tier: 'business',
     label: 'Business',
+    price_cents: 9900,
     price_display: '$99 / month',
     monthly_quota: 100000,
     rpm: 100,
@@ -45,8 +48,9 @@ const PLANS = [
     features: ['100 req / min', '100,000 validations / mo', 'All Startup features', 'Priority support', 'Analytics API'],
   },
   {
-    tier: 'enterprise' as const,
+    tier: 'enterprise',
     label: 'Enterprise',
+    price_cents: 49900,
     price_display: '$499 / month',
     monthly_quota: 1000000,
     rpm: 500,
@@ -54,13 +58,11 @@ const PLANS = [
     Icon: Crown,
     features: ['500 req / min', '1M+ validations / mo', 'All Business features', 'Dedicated support', 'SLA guarantee', 'Custom integrations'],
   },
-];
+] as const;
 
 const TIER_ORDER = ['free', 'startup', 'business', 'enterprise'];
 
-const STATUS_COLORS: Record<string, string> = {
-  active: '#00FF88', trialing: '#00D8FF', past_due: '#FFC945', canceled: '#FF4560',
-};
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function fmt(n: number) { return n.toLocaleString(); }
 function fmtDate(s: string | null) {
@@ -68,7 +70,7 @@ function fmtDate(s: string | null) {
   return new Date(s).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-// ── Plan card ────────────────────────────────────────────────────────────
+// ─── Plan Card ───────────────────────────────────────────────────────────────
 
 type PlanDef = (typeof PLANS)[number];
 
@@ -91,18 +93,21 @@ function PlanCard({
   const { color, Icon } = plan;
 
   return (
-    <div style={{
-      position: 'relative',
-      borderRadius: '16px',
-      border: `1px solid ${isCurrent ? color : 'rgba(255,255,255,0.08)'}`,
-      background: isCurrent ? `${color}0F` : '#0C101A',
-      padding: '28px 24px 24px',
-      display: 'flex', flexDirection: 'column', gap: '20px',
-      transition: 'border-color 0.2s, box-shadow 0.2s',
-      boxShadow: isCurrent ? `0 0 24px ${color}28` : 'none',
-      minHeight: '380px',
-    }}>
-      {/* Popular badge */}
+    <div
+      style={{
+        position: 'relative',
+        borderRadius: '16px',
+        border: `1px solid ${isCurrent ? color : 'rgba(255,255,255,0.08)'}`,
+        background: isCurrent ? `${color}0F` : '#0C101A',
+        padding: '28px 24px 24px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '20px',
+        transition: 'border-color 0.2s, box-shadow 0.2s',
+        boxShadow: isCurrent ? `0 0 24px ${color}28` : 'none',
+        minHeight: '380px',
+      }}
+    >
       {'popular' in plan && plan.popular && (
         <div style={{
           position: 'absolute', top: '-13px', left: '50%', transform: 'translateX(-50%)',
@@ -115,7 +120,6 @@ function PlanCard({
         </div>
       )}
 
-      {/* Icon + current badge */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div style={{
           width: '40px', height: '40px', borderRadius: '10px',
@@ -127,18 +131,25 @@ function PlanCard({
         {isCurrent && (
           <span style={{
             fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', fontWeight: 700,
-            color, background: `${color}18`, border: `1px solid ${color}40`,
+            color: color, background: `${color}18`, border: `1px solid ${color}40`,
             padding: '3px 10px', borderRadius: '20px', letterSpacing: '0.08em',
-          }}>✓ CURRENT</span>
+          }}>
+            ✓ CURRENT
+          </span>
         )}
       </div>
 
-      {/* Name + price */}
       <div>
-        <p style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '20px', color: '#E8EAED', letterSpacing: '-0.01em', marginBottom: '6px' }}>
+        <p style={{
+          fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '20px',
+          color: '#E8EAED', letterSpacing: '-0.01em', marginBottom: '6px',
+        }}>
           {plan.label}
         </p>
-        <p style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '30px', color, letterSpacing: '-0.02em', lineHeight: 1 }}>
+        <p style={{
+          fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '30px',
+          color: color, letterSpacing: '-0.02em', lineHeight: 1,
+        }}>
           {plan.price_display.split(' /')[0]}
           <span style={{ fontSize: '14px', fontWeight: 500, color: '#4B5563', marginLeft: '4px' }}>/mo</span>
         </p>
@@ -147,7 +158,6 @@ function PlanCard({
         </p>
       </div>
 
-      {/* Features */}
       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '9px', flex: 1 }}>
         {plan.features.map((f: string) => (
           <li key={f} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -157,7 +167,6 @@ function PlanCard({
         ))}
       </ul>
 
-      {/* CTA */}
       <button
         disabled={isCurrent || loading}
         onClick={() => onSelect(plan.tier)}
@@ -169,7 +178,8 @@ function PlanCard({
           fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '13px',
           cursor: isCurrent ? 'default' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-          transition: 'opacity 0.15s', opacity: loading ? 0.6 : 1,
+          transition: 'opacity 0.15s, filter 0.15s',
+          opacity: loading ? 0.6 : 1,
           letterSpacing: '0.02em',
         }}
       >
@@ -187,11 +197,13 @@ function PlanCard({
   );
 }
 
-// ── Invoice row ────────────────────────────────────────────────────────────
+// ─── Invoice Row ─────────────────────────────────────────────────────────────
 
 function InvoiceRow({ inv }: { inv: InvoiceItem }) {
-  const cc: Record<string, string> = { paid: '#00FF88', free: '#4B5563', pending: '#FFC945', failed: '#FF4560' };
-  const c = cc[inv.status] ?? '#4B5563';
+  const colors: Record<string, string> = {
+    paid: '#00FF88', free: '#4B5563', pending: '#FFC945', failed: '#FF4560',
+  };
+  const c = colors[inv.status] ?? '#4B5563';
   return (
     <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
       <td style={{ padding: '13px 16px', fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: '#4B5563' }}>{inv.id}</td>
@@ -209,7 +221,7 @@ function InvoiceRow({ inv }: { inv: InvoiceItem }) {
   );
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function BillingPage() {
   const { apiKey, tier: authTier } = useAuth();
@@ -217,61 +229,47 @@ export default function BillingPage() {
   const [sub, setSub] = useState<SubscriptionDetails | null>(null);
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
   const [subLoading, setSubLoading] = useState(true);
-  const [invoicesLoading, setInvoicesLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [upgrading, setUpgrading] = useState<string | null>(null);
-  const [upgradeMsg, setUpgradeMsg] = useState('');
-  const [canceling, setCanceling] = useState(false);
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [subError, setSubError] = useState('');
 
   const currentTier = sub?.tier ?? authTier ?? 'free';
   const currentPlan = PLANS.find(p => p.tier === currentTier) ?? PLANS[0];
 
-  const fetchSubscription = useCallback(async () => {
-    if (!apiKey) { setSubLoading(false); return; }
+  const [upgrading, setUpgrading] = useState<string | null>(null);
+  const [upgradeMsg, setUpgradeMsg] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [canceling, setCanceling] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+
+  const fetchSub = useCallback(async () => {
+    if (!apiKey) return;
+    setSubError('');
     setSubLoading(true);
     try {
       const api = createBillingApi(apiKey);
-      setSub(await api.subscription());
-    } catch {
-      // silent — plan cards still render from static data
+      const [subData, invoicesData] = await Promise.all([api.subscription(), api.invoices()]);
+      setSub(subData);
+      setInvoices(invoicesData);
+    } catch (err) {
+      setSubError(getApiError(err));
     } finally {
       setSubLoading(false);
     }
   }, [apiKey]);
 
-  const fetchInvoices = useCallback(async () => {
-    if (!apiKey) { setInvoicesLoading(false); return; }
-    setInvoicesLoading(true);
-    try {
-      const api = createBillingApi(apiKey);
-      setInvoices(await api.invoices());
-    } catch {
-      // silent
-    } finally {
-      setInvoicesLoading(false);
-    }
-  }, [apiKey]);
+  useEffect(() => { fetchSub(); }, [fetchSub]);
 
-  const fetchAll = useCallback(() => {
-    fetchSubscription();
-    fetchInvoices();
-  }, [fetchSubscription, fetchInvoices]);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
-
-  async function handleUpgrade(tier: string) {
+  async function handleSelect(tier: string) {
     if (!apiKey) return;
     setUpgrading(tier);
     setUpgradeMsg('');
-    setError('');
+    setActionError('');
     try {
       const api = createBillingApi(apiKey);
       const res = await api.upgrade({ tier: tier as never });
       setUpgradeMsg(res.message);
-      await fetchSubscription();
+      await fetchSub();
     } catch (err) {
-      setError(getApiError(err));
+      setActionError(getApiError(err));
     } finally {
       setUpgrading(null);
     }
@@ -280,167 +278,225 @@ export default function BillingPage() {
   async function handleCancel() {
     if (!apiKey) return;
     setCanceling(true);
-    setError('');
+    setActionError('');
     try {
       const api = createBillingApi(apiKey);
       const res = await api.cancel();
       setUpgradeMsg(res.message);
       setConfirmCancel(false);
-      await fetchSubscription();
+      await fetchSub();
     } catch (err) {
-      setError(getApiError(err));
+      setActionError(getApiError(err));
     } finally {
       setCanceling(false);
     }
   }
 
-  const statusColor = STATUS_COLORS[sub?.subscription_status ?? 'active'] ?? '#00FF88';
   const quotaPct = Math.min(sub?.quota_percentage ?? 0, 100);
+  const statusColors: Record<string, string> = {
+    active: '#00FF88', trialing: '#00D8FF', past_due: '#FFC945', canceled: '#FF4560',
+  };
+  const statusColor = statusColors[sub?.subscription_status ?? 'active'] ?? '#00FF88';
 
   return (
-    <div style={{ padding: '40px', maxWidth: '1200px' }}>
+    <div style={{ padding: '40px', maxWidth: '1280px' }}>
+
       {/* Header */}
       <div className="fade-up" style={{ marginBottom: '40px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
-          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: '#4B5563', letterSpacing: '0.1em', marginBottom: '6px' }}>SUBSCRIPTION</p>
-          <h1 style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '28px', letterSpacing: '-0.02em', color: '#E8EAED' }}>Billing &amp; Plans</h1>
+          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: '#4B5563', letterSpacing: '0.12em', marginBottom: '6px' }}>
+            SUBSCRIPTION
+          </p>
+          <h1 style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '28px', letterSpacing: '-0.02em', color: '#E8EAED' }}>
+            Billing &amp; Plans
+          </h1>
         </div>
-        <button onClick={fetchAll} className="tc-btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '8px 14px' }}>
-          <RefreshCw size={13} />Refresh
+        <button
+          onClick={fetchSub}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', borderRadius: '8px',
+            border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+            color: '#8B95A8', fontFamily: 'Syne, sans-serif', fontWeight: 600, fontSize: '13px', cursor: 'pointer',
+          }}
+        >
+          <RefreshCw size={13} style={subLoading ? { animation: 'spin 0.7s linear infinite' } : {}} />
+          Refresh
         </button>
       </div>
 
-      {/* Success banner */}
+      {/* Banners */}
       {upgradeMsg && (
         <div className="fade-up" style={{
-          background: 'rgba(0,255,136,0.08)', border: '1px solid rgba(0,255,136,0.2)',
-          borderRadius: '10px', padding: '12px 16px', marginBottom: '24px',
-          display: 'flex', alignItems: 'center', gap: '8px',
+          background: 'rgba(0,255,136,0.08)', border: '1px solid rgba(0,255,136,0.25)',
+          borderRadius: '10px', padding: '12px 18px', marginBottom: '24px',
+          display: 'flex', alignItems: 'center', gap: '10px',
           fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: '#00FF88',
         }}>
           <CheckCircle2 size={14} />{upgradeMsg}
-          <button onClick={() => setUpgradeMsg('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#4B5563', lineHeight: 1 }}>✕</button>
+          <button onClick={() => setUpgradeMsg('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#4B5563', fontSize: '16px' }}>✕</button>
         </div>
       )}
-
-      {/* Error banner */}
-      {error && (
+      {actionError && (
         <div className="fade-up" style={{
-          background: 'rgba(255,69,96,0.08)', border: '1px solid rgba(255,69,96,0.2)',
-          borderRadius: '10px', padding: '12px 16px', marginBottom: '24px',
-          display: 'flex', alignItems: 'center', gap: '8px',
+          background: 'rgba(255,69,96,0.08)', border: '1px solid rgba(255,69,96,0.25)',
+          borderRadius: '10px', padding: '12px 18px', marginBottom: '24px',
+          display: 'flex', alignItems: 'center', gap: '10px',
           fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: '#FF4560',
         }}>
-          <AlertTriangle size={14} />{error}
-          <button onClick={() => setError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#4B5563', lineHeight: 1 }}>✕</button>
+          <AlertTriangle size={14} />{actionError}
+          <button onClick={() => setActionError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#4B5563', fontSize: '16px' }}>✕</button>
         </div>
       )}
 
-      {/* Subscription summary card */}
-      <div className="glass-card fade-up-1" style={{ padding: '24px', marginBottom: '36px' }}>
-        {subLoading ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px' }}>
-            {[...Array(3)].map((_, i) => <div key={i} className="shimmer" style={{ height: '72px', borderRadius: '8px' }} />)}
+      {/* Current plan summary */}
+      <div className="fade-up-1" style={{
+        background: '#0C101A',
+        border: `1px solid ${currentPlan.color}30`,
+        borderRadius: '16px', padding: '28px', marginBottom: '40px',
+        display: 'grid', gridTemplateColumns: '1fr 1px 1fr 1px 1fr', gap: '0',
+        boxShadow: `0 0 32px ${currentPlan.color}10`,
+      }}>
+        {/* Active plan col */}
+        <div style={{ paddingRight: '32px' }}>
+          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: '#4B5563', letterSpacing: '0.1em', marginBottom: '14px' }}>ACTIVE PLAN</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              width: '48px', height: '48px', borderRadius: '12px',
+              background: `${currentPlan.color}18`, border: `1px solid ${currentPlan.color}35`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <currentPlan.Icon size={22} color={currentPlan.color} />
+            </div>
+            <div>
+              <p style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '22px', color: '#E8EAED' }}>{currentPlan.label}</p>
+              <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: currentPlan.color, marginTop: '2px' }}>{currentPlan.price_display}</p>
+            </div>
           </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '24px', alignItems: 'center' }}>
-            {/* Plan info */}
-            <div>
-              <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: '#4B5563', letterSpacing: '0.08em', marginBottom: '8px' }}>ACTIVE PLAN</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{
-                  width: '36px', height: '36px', borderRadius: '10px',
-                  background: `${currentPlan.color}18`, border: `1px solid ${currentPlan.color}30`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <currentPlan.Icon size={16} color={currentPlan.color} />
-                </div>
-                <div>
-                  <p style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '18px', color: '#E8EAED', textTransform: 'capitalize' }}>{currentTier}</p>
-                  <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: currentPlan.color }}>{sub?.price_display ?? currentPlan.price_display}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Status */}
-            <div>
-              <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: '#4B5563', letterSpacing: '0.08em', marginBottom: '8px' }}>STATUS</p>
+          <div style={{ marginTop: '16px' }}>
+            {subLoading ? (
+              <div className="shimmer" style={{ height: '26px', width: '90px', borderRadius: '20px' }} />
+            ) : sub ? (
               <span style={{
-                fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', fontWeight: 700,
-                color: statusColor, background: `${statusColor}18`, border: `1px solid ${statusColor}30`,
-                padding: '4px 10px', borderRadius: '8px', textTransform: 'uppercase',
-              }}>{sub?.subscription_status ?? 'active'}</span>
-              {sub?.current_period_end && (
-                <p style={{ fontSize: '12px', color: '#4B5563', marginTop: '6px', fontFamily: 'JetBrains Mono, monospace' }}>Renews {fmtDate(sub.current_period_end)}</p>
-              )}
-            </div>
+                fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', fontWeight: 700,
+                color: statusColor, background: `${statusColor}18`, border: `1px solid ${statusColor}35`,
+                padding: '4px 12px', borderRadius: '20px', letterSpacing: '0.08em', textTransform: 'uppercase',
+              }}>● {sub.subscription_status}</span>
+            ) : (
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: '#4B5563' }}>
+                {subError ? '⚠ Backend offline' : '—'}
+              </span>
+            )}
+          </div>
+        </div>
 
-            {/* Quota bar */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: '#4B5563', letterSpacing: '0.08em' }}>QUOTA USED</p>
-                {sub && <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: '#8B95A8' }}>{fmt(sub.quota_used)} / {fmt(sub.monthly_quota)}</p>}
+        {/* Divider */}
+        <div style={{ background: 'rgba(255,255,255,0.06)', margin: '0 32px' }} />
+
+        {/* Quota col */}
+        <div style={{ padding: '0 32px' }}>
+          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: '#4B5563', letterSpacing: '0.1em', marginBottom: '14px' }}>QUOTA USAGE</p>
+          {subLoading ? (
+            <div className="shimmer" style={{ height: '70px', borderRadius: '8px' }} />
+          ) : sub ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
+                <span style={{ fontFamily: 'Syne, sans-serif', fontWeight: 800, fontSize: '26px', color: '#E8EAED' }}>{fmt(sub.quota_used)}</span>
+                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: '#4B5563' }}>/ {fmt(sub.monthly_quota)}</span>
               </div>
-              <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: '6px', height: '8px', overflow: 'hidden' }}>
+              <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '8px', height: '8px', overflow: 'hidden', marginBottom: '8px' }}>
                 <div style={{
-                  height: '100%', borderRadius: '6px', transition: 'width 0.4s',
-                  background: quotaPct > 85 ? '#FF4560' : quotaPct > 60 ? '#FFC945' : currentPlan.color,
-                  width: `${quotaPct}%`,
+                  height: '100%', borderRadius: '8px', transition: 'width 0.6s ease', width: `${quotaPct}%`,
+                  background: quotaPct > 85 ? '#FF4560' : quotaPct > 60 ? '#FFC945' : `linear-gradient(90deg, ${currentPlan.color}, ${currentPlan.color}99)`,
                 }} />
               </div>
-              {sub && <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: '#4B5563', marginTop: '6px' }}>{sub.quota_percentage.toFixed(1)}% of monthly quota</p>}
+              <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: '#4B5563' }}>{sub.quota_percentage.toFixed(1)}% used this month</p>
+            </>
+          ) : (
+            <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: '#4B5563' }}>{subError ? '⚠ Could not load' : '—'}</p>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div style={{ background: 'rgba(255,255,255,0.06)', margin: '0 32px' }} />
+
+        {/* Billing period col */}
+        <div style={{ paddingLeft: '8px' }}>
+          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: '#4B5563', letterSpacing: '0.1em', marginBottom: '14px' }}>BILLING PERIOD</p>
+          {subLoading ? (
+            <div className="shimmer" style={{ height: '70px', borderRadius: '8px' }} />
+          ) : sub ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: '#4B5563', marginBottom: '3px' }}>RENEWS</p>
+                <p style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '15px', color: '#E8EAED' }}>{fmtDate(sub.current_period_end)}</p>
+              </div>
+              <div>
+                <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '10px', color: '#4B5563', marginBottom: '3px' }}>RATE LIMIT</p>
+                <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '15px', fontWeight: 600, color: currentPlan.color }}>{sub.rpm_limit} req / min</p>
+              </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: '#4B5563' }}>{subError ? '—' : '—'}</p>
+          )}
+        </div>
       </div>
 
-      {/* Plan cards — always rendered from static data */}
-      <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: '#4B5563', letterSpacing: '0.1em', marginBottom: '20px' }}>AVAILABLE PLANS</p>
+      {/* Plan selection grid */}
+      <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: '#4B5563', letterSpacing: '0.12em', marginBottom: '20px' }}>
+        CHOOSE A PLAN
+      </p>
       <div className="fade-up-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '40px' }}>
         {PLANS.map(plan => (
-          <PlanCard
-            key={plan.tier}
-            plan={plan}
-            currentTier={currentTier}
-            onSelect={handleUpgrade}
-            busy={upgrading}
-          />
+          <PlanCard key={plan.tier} plan={plan} currentTier={currentTier} onSelect={handleSelect} busy={upgrading} />
         ))}
       </div>
 
-      {/* Cancel section */}
-      {!subLoading && sub && sub.tier !== 'free' && sub.subscription_status !== 'canceled' && (
-        <div className="glass-card fade-up-3" style={{
-          padding: '20px 24px', marginBottom: '40px',
-          border: '1px solid rgba(255,255,255,0.06)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      {/* Cancel subscription */}
+      {currentTier !== 'free' && sub?.subscription_status !== 'canceled' && (
+        <div className="fade-up-3" style={{
+          background: '#0C101A', border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: '14px', padding: '22px 28px', marginBottom: '40px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '24px',
         }}>
           <div>
-            <p style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '14px', color: '#E8EAED', marginBottom: '4px' }}>Cancel Subscription</p>
-            <p style={{ fontSize: '13px', color: '#4B5563' }}>Immediately downgrades you to the Free plan. All data is preserved.</p>
+            <p style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '15px', color: '#E8EAED', marginBottom: '5px' }}>Cancel Subscription</p>
+            <p style={{ fontSize: '13px', color: '#4B5563', fontFamily: 'JetBrains Mono, monospace' }}>
+              Immediately downgrades to Free. All data and validation history is preserved.
+            </p>
           </div>
           {!confirmCancel ? (
-            <button onClick={() => setConfirmCancel(true)} style={{
-              padding: '9px 18px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)',
-              background: 'transparent', color: '#8B95A8',
-              fontFamily: 'Syne, sans-serif', fontWeight: 600, fontSize: '13px', cursor: 'pointer',
-            }}>Cancel plan</button>
+            <button
+              onClick={() => setConfirmCancel(true)}
+              style={{
+                padding: '10px 20px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)',
+                background: 'transparent', color: '#8B95A8',
+                fontFamily: 'Syne, sans-serif', fontWeight: 600, fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap',
+              }}
+            >Cancel plan</button>
           ) : (
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', color: '#8B95A8', fontFamily: 'JetBrains Mono, monospace' }}>Are you sure?</span>
-              <button onClick={handleCancel} disabled={canceling} style={{
-                padding: '9px 18px', borderRadius: '8px', border: '1px solid #FF4560',
-                background: '#FF4560', color: '#fff',
-                fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '13px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '6px',
-              }}>
-                {canceling ? <><RefreshCw size={12} className="spin" />Canceling…</> : <><XCircle size={13} />Yes, cancel</>}
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: '#8B95A8' }}>Confirm?</span>
+              <button
+                onClick={handleCancel} disabled={canceling}
+                style={{
+                  padding: '10px 18px', borderRadius: '8px', border: '1px solid #FF4560',
+                  background: '#FF4560', color: '#fff',
+                  fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '13px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap',
+                }}
+              >
+                {canceling
+                  ? <><RefreshCw size={12} style={{ animation: 'spin 0.7s linear infinite' }} />Canceling…</>
+                  : <><XCircle size={13} />Yes, cancel</>}
               </button>
-              <button onClick={() => setConfirmCancel(false)} style={{
-                padding: '9px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)',
-                background: 'transparent', color: '#4B5563',
-                fontFamily: 'Syne, sans-serif', fontWeight: 600, fontSize: '13px', cursor: 'pointer',
-              }}>Keep plan</button>
+              <button
+                onClick={() => setConfirmCancel(false)}
+                style={{
+                  padding: '10px 16px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)',
+                  background: 'transparent', color: '#8B95A8',
+                  fontFamily: 'Syne, sans-serif', fontWeight: 600, fontSize: '13px', cursor: 'pointer', whiteSpace: 'nowrap',
+                }}
+              >Keep plan</button>
             </div>
           )}
         </div>
@@ -450,25 +506,30 @@ export default function BillingPage() {
       <div className="fade-up-4">
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
           <Receipt size={14} color="#4B5563" />
-          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: '#4B5563', letterSpacing: '0.1em' }}>INVOICE HISTORY</p>
+          <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: '#4B5563', letterSpacing: '0.12em' }}>INVOICE HISTORY</p>
         </div>
-        {invoicesLoading ? (
-          <div className="glass-card shimmer" style={{ height: '120px' }} />
+        {subLoading ? (
+          <div className="shimmer" style={{ height: '80px', borderRadius: '12px' }} />
         ) : invoices.length === 0 ? (
-          <div className="glass-card" style={{ padding: '36px', textAlign: 'center' }}>
-            <Receipt size={28} color="rgba(255,255,255,0.12)" style={{ margin: '0 auto 12px' }} />
-            <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: '#4B5563' }}>No invoices yet — they appear after your first plan change.</p>
+          <div style={{
+            background: '#0C101A', border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: '12px', padding: '48px', textAlign: 'center',
+          }}>
+            <Receipt size={32} color="rgba(255,255,255,0.08)" style={{ margin: '0 auto 14px' }} />
+            <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: '#4B5563' }}>
+              No invoices yet — they appear after your first plan change.
+            </p>
           </div>
         ) : (
-          <div className="glass-card" style={{ overflow: 'hidden' }}>
+          <div style={{ background: '#0C101A', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
                   {['Invoice ID', 'Plan', 'Amount', 'Status', 'Date'].map(h => (
                     <th key={h} style={{
-                      padding: '10px 16px', textAlign: 'left',
+                      padding: '11px 16px', textAlign: 'left',
                       fontFamily: 'JetBrains Mono, monospace', fontSize: '10px',
-                      fontWeight: 600, color: '#4B5563', letterSpacing: '0.08em',
+                      fontWeight: 600, color: '#4B5563', letterSpacing: '0.1em',
                     }}>{h}</th>
                   ))}
                 </tr>
@@ -481,10 +542,7 @@ export default function BillingPage() {
         )}
       </div>
 
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .spin { animation: spin 0.7s linear infinite; }
-      `}</style>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
