@@ -1,13 +1,23 @@
 """
 Validation API Routes
 """
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
-from typing import Dict, List, Any, Optional
-from core.validation_engine import ValidationEngine, ValidationResult
+from typing import Dict, List, Any, Optional, Tuple
+from sqlalchemy.ext.asyncio import AsyncSession
+import time
+import uuid
+
+from ...core.validation_engine import ValidationEngine, ValidationResult
+from ...models.organization import Organization
+from ...models.api_key import APIKey
+from ...models.validation_log import ValidationLog
+from ...db.connection import get_db
+from ..dependencies import require_quota
+from ...core.auth import increment_usage
 
 
-router = APIRouter()
+router = APIRouter(prefix="/v1", tags=["Validation"])
 
 
 class ValidationRequest(BaseModel):
@@ -57,7 +67,8 @@ class ValidationRequest(BaseModel):
 @router.post("/validate", response_model=ValidationResult)
 async def validate(
     request: ValidationRequest,
-    authorization: Optional[str] = Header(None)
+    org_data: Tuple[Organization, APIKey] = Depends(require_quota),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Validate AI output against business rules
@@ -68,24 +79,23 @@ async def validate(
     - Pattern validation (regex)
     - Constraint validation (custom expressions)
     
+    **Requires authentication via X-API-Key header**
+    
     Returns validation result with any violations found and optionally
     auto-corrected output.
     
     Args:
         request: Validation request with output, rules, and context
-        authorization: Optional API key for authentication (future use)
+        org_data: Current organization and API key (injected by auth)
+        db: Database session
     
     Returns:
         ValidationResult with status, violations, and corrected output
     """
+    organization, api_key = org_data
+    start_time = time.time()
+    
     try:
-        # TODO: Implement API key verification when auth is ready
-        # if authorization:
-        #     api_key = authorization.replace("Bearer ", "")
-        #     organization = await verify_api_key(api_key)
-        #     if not await organization.has_quota():
-        #         raise HTTPException(status_code=403, detail="Validation quota exceeded")
-        
         # Run validation
         engine = ValidationEngine()
         result = await engine.validate(
@@ -94,17 +104,29 @@ async def validate(
             context=request.context
         )
         
-        # TODO: Log validation when database is ready
-        # await ValidationLog.create(
-        #     organization_id=organization.id if authorization else None,
-        #     validation_id=result.validation_id,
-        #     input_data=request.output,
-        #     output_data=result.corrected_output,
-        #     rules_applied=request.rules,
-        #     result=result.status.value,
-        #     violations=[v.dict() for v in result.violations],
-        #     latency_ms=result.latency_ms
-        # )
+        # Calculate latency
+        latency_ms = int((time.time() - start_time) * 1000)
+        
+        # Log validation
+        validation_log = ValidationLog(
+            organization_id=organization.id,
+            validation_id=str(uuid.uuid4()),
+            input_data=request.output,
+            output_data=result.corrected_output if result.corrected_output else request.output,
+            rules_applied=request.rules,
+            result=result.status.value,
+            violations=[v.dict() for v in result.violations],
+            auto_corrected=result.corrected_output is not None,
+            latency_ms=latency_ms
+        )
+        
+        db.add(validation_log)
+        
+        # Increment usage counter
+        await increment_usage(db, organization)
+        
+        # Add latency to result
+        result.latency_ms = latency_ms
         
         return result
     

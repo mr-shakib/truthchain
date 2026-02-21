@@ -3,14 +3,21 @@ Database Connection Module
 Handles PostgreSQL connections with fallback for development
 """
 import os
+from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
 from typing import AsyncGenerator
 
-# Database URL - can be overridden by environment variable
+# Import Base from db.base
+from .base import Base
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Database URL with smart defaults
+# Priority: .env file > environment variable > localhost > docker
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://truthchain:devpass123@truthchain_db:5432/truthchain"  # Docker network name
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/truthchain"  # Local development default
 )
 
 # For local development outside Docker, use this:
@@ -29,9 +36,6 @@ AsyncSessionLocal = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
-
-# Base class for models
-Base = declarative_base()
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
