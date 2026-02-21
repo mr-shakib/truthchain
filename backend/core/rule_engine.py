@@ -4,10 +4,15 @@ Rule Engine - Validates data against business rules and constraints
 from typing import Dict, List, Any, Optional
 import re
 from .validation_engine import Violation, ViolationType
+from .semantic_validator import SemanticValidator
 
 
 class RuleEngine:
-    """Validates output against business rules (ranges, constraints, patterns)"""
+    """Validates output against business rules (ranges, constraints, patterns, semantic alignment)"""
+
+    def __init__(self):
+        # SemanticValidator is a singleton — model loads lazily on first use
+        self._semantic_validator = SemanticValidator()
     
     async def validate(
         self,
@@ -42,7 +47,11 @@ class RuleEngine:
             elif rule_type == 'pattern':
                 pattern_violations = self._validate_pattern(output, rule)
                 violations.extend(pattern_violations)
-        
+
+            elif rule_type == 'semantic':
+                semantic_violations = self._validate_semantic(output, rule, context)
+                violations.extend(semantic_violations)
+
         return violations
     
     def _validate_range(
@@ -239,6 +248,106 @@ class RuleEngine:
         
         return violations
     
+    def _validate_semantic(
+        self,
+        output: Dict[str, Any],
+        rule: Dict[str, Any],
+        context: Optional[Dict[str, Any]],
+    ) -> List[Violation]:
+        """
+        Validate semantic alignment between an output field and a context field.
+
+        Rule shape:
+            {
+                "type": "semantic",
+                "output_field": "recommendation",   # key in output dict
+                "context_field": "patient_history", # key in context dict
+                "min_alignment": 0.5,               # cosine similarity threshold
+                "severity": "error"                 # default: "error"
+            }
+        """
+        violations = []
+
+        output_field = rule.get("output_field")
+        context_field = rule.get("context_field")
+        min_alignment = float(rule.get("min_alignment", 0.5))
+        severity = rule.get("severity", "error")
+        rule_name = rule.get("name", f"{output_field}_semantic_check")
+
+        if not output_field or not context_field:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.SEMANTIC,
+                field=output_field or "unknown",
+                message="Semantic rule must specify both 'output_field' and 'context_field'",
+                severity="warning",
+                found_value=None,
+            ))
+            return violations
+
+        # Retrieve the output text
+        output_text = self._get_nested_value(output, output_field)
+        if output_text is None:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.SEMANTIC,
+                field=output_field,
+                message=f"Field '{output_field}' not found in output",
+                severity="warning",
+                found_value=None,
+            ))
+            return violations
+
+        # Retrieve the context text
+        context_text = None
+        if context:
+            context_text = context.get(context_field)
+        if context_text is None:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.SEMANTIC,
+                field=output_field,
+                message=f"Context field '{context_field}' not provided — cannot run semantic check",
+                severity="warning",
+                found_value=str(output_text),
+            ))
+            return violations
+
+        # Run cosine similarity check
+        try:
+            result = self._semantic_validator.check_alignment(
+                output_text=str(output_text),
+                context_text=str(context_text),
+                min_alignment=min_alignment,
+            )
+        except Exception as exc:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.SEMANTIC,
+                field=output_field,
+                message=f"Semantic validation error: {exc}",
+                severity="warning",
+                found_value=str(output_text),
+            ))
+            return violations
+
+        if result.is_contradiction:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.SEMANTIC,
+                field=output_field,
+                message=(
+                    f"Semantic contradiction detected: {result.explanation} "
+                    f"Output may contradict or ignore the provided '{context_field}'."
+                ),
+                severity=severity,
+                found_value=str(output_text)[:200],  # truncate for readability
+                expected_value=f"Alignment >= {min_alignment} (got {result.score:.4f})",
+                suggestion="Review the output — it may contradict the context.",
+            ))
+
+        return violations
+
     def _get_nested_value(self, obj: Dict, path: str) -> Any:
         """
         Get value from nested dict using dot notation
