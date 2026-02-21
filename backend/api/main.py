@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import time
 from contextlib import asynccontextmanager
 
-from .routes import validation, auth, analytics
+from .routes import validation, auth, analytics, health
 from ..db.connection import init_db, close_db
 
 
@@ -54,6 +54,7 @@ async def add_process_time_header(request, call_next):
 app.include_router(validation.router)
 app.include_router(auth.router)
 app.include_router(analytics.router)
+app.include_router(health.router)
 
 @app.get("/")
 async def root():

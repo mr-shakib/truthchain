@@ -1,7 +1,7 @@
 """
 Authentication routes for TruthChain
 """
-from fastapi import APIRouter, HTTPException, Depends, Header
+from fastapi import APIRouter, HTTPException, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
@@ -15,6 +15,7 @@ from ...core.auth import (
     create_api_key,
     verify_api_key
 )
+from ...core.audit_logger import audit_logger
 
 router = APIRouter(prefix="/v1/auth", tags=["Authentication"])
 
@@ -56,7 +57,8 @@ class APIKeyResponse(BaseModel):
 
 @router.post("/signup", response_model=SignupResponse, status_code=201)
 async def signup(
-    request: SignupRequest,
+    signup_req: SignupRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -65,52 +67,85 @@ async def signup(
     Creates an organization account and generates the first API key.
     **Save the API key securely - it will only be shown once!**
     """
-    # Check if email already exists
-    from sqlalchemy import select
-    result = await db.execute(
-        select(Organization).where(Organization.email == request.email)
-    )
-    existing_org = result.scalar_one_or_none()
-    
-    if existing_org:
-        raise HTTPException(
-            status_code=400,
-            detail="Organization with this email already exists"
+    try:
+        # Check if email already exists
+        from sqlalchemy import select
+        result = await db.execute(
+            select(Organization).where(Organization.email == signup_req.email)
         )
-    
-    # Create organization
-    organization = Organization(
-        name=request.name,
-        email=request.email,
-        password_hash=hash_password(request.password),
-        tier=request.tier
-    )
-    
-    db.add(organization)
-    await db.commit()
-    await db.refresh(organization)
-    
-    # Create API key
-    api_key_obj, plain_key = await create_api_key(
-        db,
-        organization.id,
-        name="Default API Key"
-    )
-    
-    return SignupResponse(
-        organization_id=organization.id,
-        name=organization.name,
-        email=organization.email,
-        tier=organization.tier if isinstance(organization.tier, str) else organization.tier.value,
-        api_key=plain_key,
-        monthly_quota=organization.monthly_quota
-    )
+        existing_org = result.scalar_one_or_none()
+        
+        if existing_org:
+            # Log failed signup attempt
+            await audit_logger.log_signup(
+                db=db,
+                email=signup_req.email,
+                organization_id=existing_org.id,
+                tier=signup_req.tier.value,
+                request=request,
+                status="failure",
+                error_message="Email already exists"
+            )
+            
+            raise HTTPException(
+                status_code=400,
+                detail="Organization with this email already exists"
+            )
+        
+        # Create organization
+        organization = Organization(
+            name=signup_req.name,
+            email=signup_req.email,
+            password_hash=hash_password(signup_req.password),
+            tier=signup_req.tier
+        )
+        
+        db.add(organization)
+        await db.commit()
+        await db.refresh(organization)
+        
+        # Create API key
+        api_key_obj, plain_key = await create_api_key(
+            db,
+            organization.id,
+            name="Default API Key"
+        )
+        
+        # Log successful signup
+        await audit_logger.log_signup(
+            db=db,
+            email=signup_req.email,
+            organization_id=organization.id,
+            tier=organization.tier if isinstance(organization.tier, str) else organization.tier.value,
+            request=request,
+            status="success"
+        )
+        
+        return SignupResponse(
+            organization_id=organization.id,
+            name=organization.name,
+            email=organization.email,
+            tier=organization.tier if isinstance(organization.tier, str) else organization.tier.value,
+            api_key=plain_key,
+            monthly_quota=organization.monthly_quota
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log unexpected error
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Signup failed: {str(e)}"
+        )
 
 
 @router.post("/api-keys", response_model=APIKeyResponse, status_code=201)
 async def create_new_api_key(
     name: str = "API Key",
     x_api_key: str = Header(..., description="Existing API key for authentication"),
+    request: Request = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -131,6 +166,15 @@ async def create_new_api_key(
         db,
         organization.id,
         name=name
+    )
+    
+    # Log API key creation
+    await audit_logger.log_api_key_create(
+        db=db,
+        organization_id=organization.id,
+        api_key_id=api_key_obj.id,
+        key_name=name,
+        request=request
     )
     
     return APIKeyResponse(
@@ -179,10 +223,82 @@ async def list_api_keys(
     ]
 
 
+@router.post("/api-keys/{key_id}/rotate", response_model=APIKeyResponse, status_code= 200)
+async def rotate_api_key(
+    key_id: str,
+    x_api_key: str = Header(..., description="API key for authentication"),
+    request: Request = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Rotate an API key (generate new key, revoke old key)
+    
+    This creates a new API key and immediately revokes the old one.
+    **Save the new API key securely - it will only be shown once!**
+    
+    Best practice: Have at least 2 active keys before rotation, so you can
+    update your applications with the new key before the old one is revoked.
+    """
+    # Verify the requesting API key
+    result = await verify_api_key(db, x_api_key)
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    organization, requesting_key = result
+    
+    # Get the key to rotate
+    from sqlalchemy import select
+    result = await db.execute(
+        select(APIKey).where(
+            APIKey.id == key_id,
+            APIKey.organization_id == organization.id
+        )
+    )
+    old_api_key = result.scalar_one_or_none()
+    
+    if not old_api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    
+    if not old_api_key.is_active:
+        raise HTTPException(status_code=400, detail="Cannot rotate an inactive API key")
+    
+    # Create new API key with same name (+ " (Rotated)")
+    new_name = f"{old_api_key.name} (Rotated)"
+    new_api_key, plain_key = await create_api_key(
+        db,
+        organization.id,
+        name=new_name
+    )
+    
+    # Revoke the old key
+    old_api_key.is_active = False
+    await db.commit()
+    await db.refresh(new_api_key)
+    
+    # Log API key rotation
+    await audit_logger.log_api_key_rotate(
+        db=db,
+        organization_id=organization.id,
+        old_key_id=old_api_key.id,
+        new_key_id=new_api_key.id,
+        request=request
+    )
+    
+    return APIKeyResponse(
+        id=new_api_key.id,
+        name=new_api_key.name,
+        key=plain_key,  # Only shown on creation
+        is_active=new_api_key.is_active,
+        created_at=new_api_key.created_at.isoformat(),
+        last_used_at=None
+    )
+
+
 @router.delete("/api-keys/{key_id}", status_code=204)
 async def revoke_api_key(
-    key_id: int,
+    key_id: str,
     x_api_key: str = Header(..., description="API key for authentication"),
+    request: Request = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -228,5 +344,13 @@ async def revoke_api_key(
     # Revoke the key
     api_key.is_active = False
     await db.commit()
+    
+    # Log API key revocation
+    await audit_logger.log_api_key_revoke(
+        db=db,
+        organization_id=organization.id,
+        api_key_id=api_key.id,
+        request=request
+    )
     
     return None

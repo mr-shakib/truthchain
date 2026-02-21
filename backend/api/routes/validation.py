@@ -1,7 +1,7 @@
 """
 Validation API Routes
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from ...models.organization import Organization
 from ...models.api_key import APIKey
 from ...models.validation_log import ValidationLog
 from ...db.connection import get_db
-from ..dependencies import require_quota
+from ..dependencies import require_quota_and_rate_limit
 from ...core.auth import increment_usage
 
 
@@ -65,8 +65,10 @@ class ValidationRequest(BaseModel):
 
 @router.post("/validate", response_model=ValidationResult)
 async def validate(
-    request: ValidationRequest,
-    org_data: Tuple[Organization, APIKey] = Depends(require_quota),
+    validation_request: ValidationRequest,
+    req: Request,  
+    response: Response,
+    org_data: Tuple[Organization, APIKey] = Depends(require_quota_and_rate_limit),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -77,7 +79,12 @@ async def validate(
     - Range validation (min/max values)
     - Pattern validation (regex)
     - Constraint validation (custom expressions)
-    - **NEW:** Reference validation (database lookups)
+    - Reference validation (database lookups)
+    - **NEW (Week 11-12):** Statistical validation & anomaly detection
+    - **NEW (Week 11-12):** Confidence scoring
+    
+    **Rate Limiting:** This endpoint is rate-limited based on your organization tier.
+    Check response headers for rate limit information.
     - **NEW:** Auto-correction of common errors
     
     **Requires authentication via X-API-Key header**
@@ -98,9 +105,16 @@ async def validate(
     organization, api_key = org_data
     start_time = time.time()
     
+    # Add rate limit headers to response
+    if hasattr(req.state, 'rate_limit_result'):
+        rate_result = req.state.rate_limit_result
+        response.headers["X-RateLimit-Limit"] = str(rate_result.limit)
+        response.headers["X-RateLimit-Remaining"] = str(rate_result.remaining)
+        response.headers["X-RateLimit-Reset"] = rate_result.reset_at.isoformat()
+    
     try:
         # Initialize context with organization_id for reference validation
-        context = request.context or {}
+        context = validation_request.context or {}
         context["organization_id"] = organization.id
         
         # TODO: Get cache instance
@@ -109,8 +123,8 @@ async def validate(
         # Run validation with advanced features
         engine = ValidationEngine(db_session=db)  # Pass db for reference validation
         result = await engine.validate(
-            output=request.output,
-            rules=request.rules,
+            output=validation_request.output,
+            rules=validation_request.rules,
             context=context
         )
         
@@ -133,9 +147,9 @@ async def validate(
         validation_log = ValidationLog(
             organization_id=organization.id,
             validation_id=result.validation_id,  # Use the ID from ValidationEngine
-            input_data=request.output,
-            output_data=result.corrected_output if result.corrected_output else request.output,
-            rules_applied=request.rules,
+            input_data=validation_request.output,
+            output_data=result.corrected_output if result.corrected_output else validation_request.output,
+            rules_applied=validation_request.rules,
             result=result.status.value,
             violations=violations_json,
             auto_corrected=result.auto_corrected,

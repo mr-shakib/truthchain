@@ -6,6 +6,8 @@ class Settings(BaseSettings):
     # API Settings
     API_TITLE: str = "TruthChain API"
     API_VERSION: str = "1.0.0"
+    API_HOST: str = "0.0.0.0"
+    API_PORT: int = 8888
     
     # Database Settings
     DATABASE_URL: str = "postgresql://truthchain:truthchain_dev_password@localhost:5432/truthchain"
@@ -28,3 +30,8 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def get_settings() -> Settings:
+    """Get application settings instance."""
+    return settings
