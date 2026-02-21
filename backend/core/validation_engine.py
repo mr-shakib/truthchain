@@ -33,7 +33,7 @@ class Violation(BaseModel):
 
 class ValidationResult(BaseModel):
     status: ValidationStatus
-    valid: bool
+    is_valid: bool
     violations: List[Violation]
     auto_corrected: bool
     corrected_output: Optional[Dict[str, Any]] = None
@@ -191,7 +191,7 @@ class ValidationEngine:
             # Build temporary result for scoring
             temp_result = ValidationResult(
                 status=status,
-                valid=error_count == 0,
+                is_valid=error_count == 0,
                 violations=violations,
                 auto_corrected=auto_corrected,
                 corrected_output=corrected_output,
@@ -213,7 +213,7 @@ class ValidationEngine:
         
         return ValidationResult(
             status=status,
-            valid=error_count == 0,
+            is_valid=error_count == 0,
             violations=violations,
             auto_corrected=auto_corrected,
             corrected_output=corrected_output,

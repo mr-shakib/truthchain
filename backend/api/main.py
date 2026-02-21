@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from .routes import validation, auth, analytics, health, billing
 from ..db.connection import init_db, close_db
+from ..config.settings import settings
 
 
 @asynccontextmanager
@@ -32,10 +33,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware — origins from CORS_ORIGINS env var ("*" only in development)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=settings.cors_origins_list if settings.is_production else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
