@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
 
+    # External AI / Search APIs
+    TAVILY_API_KEY: str = ""   # https://app.tavily.com — required for web_verify rule type
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Return CORS_ORIGINS as a Python list."""

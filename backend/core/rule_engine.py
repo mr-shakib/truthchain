@@ -5,6 +5,23 @@ from typing import Dict, List, Any, Optional
 import re
 from .validation_engine import Violation, ViolationType
 from .semantic_validator import SemanticValidator
+from .web_verifier import WebVerifier
+
+_web_verifier: WebVerifier | None = None
+
+
+def _get_web_verifier() -> WebVerifier | None:
+    """Lazy-initialise WebVerifier using TAVILY_API_KEY from settings."""
+    global _web_verifier
+    if _web_verifier is None:
+        try:
+            from ..config.settings import settings
+            api_key = settings.TAVILY_API_KEY
+            if api_key:
+                _web_verifier = WebVerifier(api_key=api_key)
+        except Exception:
+            pass  # No API key configured — web_verify rules will return warning
+    return _web_verifier
 
 
 class RuleEngine:
@@ -51,6 +68,10 @@ class RuleEngine:
             elif rule_type == 'semantic':
                 semantic_violations = self._validate_semantic(output, rule, context)
                 violations.extend(semantic_violations)
+
+            elif rule_type == 'web_verify':
+                web_violations = await self._validate_web_verify(output, rule)
+                violations.extend(web_violations)
 
         return violations
     
@@ -344,6 +365,129 @@ class RuleEngine:
                 found_value=str(output_text)[:200],  # truncate for readability
                 expected_value=f"Alignment >= {min_alignment} (got {result.score:.4f})",
                 suggestion="Review the output — it may contradict the context.",
+            ))
+
+        return violations
+
+    async def _validate_web_verify(
+        self,
+        output: Dict[str, Any],
+        rule: Dict[str, Any],
+    ) -> List[Violation]:
+        """
+        Validate a field value against live web sources via Tavily.
+
+        Rule shape::
+
+            {
+                "type": "web_verify",
+                "field": "ai_response",        # claim text is in this output field
+                "confidence_threshold": 0.7,    # below this → violation (default 0.7)
+                "search_depth": "basic",         # "basic" | "advanced"
+                "max_results": 5,
+                "severity": "error"
+            }
+        """
+        violations = []
+
+        field = rule.get("field")
+        threshold = float(rule.get("confidence_threshold", 0.7))
+        search_depth = rule.get("search_depth", "basic")
+        max_results = int(rule.get("max_results", 5))
+        severity = rule.get("severity", "error")
+        rule_name = rule.get("name", f"{field}_web_verify")
+
+        if not field:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field="unknown",
+                message="web_verify rule must specify 'field'",
+                severity="warning",
+                found_value=None,
+            ))
+            return violations
+
+        claim_text = self._get_nested_value(output, field)
+        if claim_text is None:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message=f"Field '{field}' not found in output — cannot run web_verify",
+                severity="warning",
+                found_value=None,
+            ))
+            return violations
+
+        verifier = _get_web_verifier()
+        if verifier is None:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message=(
+                    "web_verify rule requires TAVILY_API_KEY in .env — "
+                    "sign up at https://app.tavily.com"
+                ),
+                severity="warning",
+                found_value=str(claim_text),
+            ))
+            return violations
+
+        # Run the web fact-check
+        try:
+            result = await verifier.verify(
+                claim=str(claim_text),
+                search_depth=search_depth,
+                max_results=max_results,
+            )
+        except Exception as exc:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message=f"Web verification error: {exc}",
+                severity="warning",
+                found_value=str(claim_text),
+            ))
+            return violations
+
+        # If Tavily itself errored, degrade gracefully
+        if result.error and not result.sources:
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message=f"Web search unavailable: {result.error}",
+                severity="warning",
+                found_value=str(claim_text),
+            ))
+            return violations
+
+        # Raise violation if confidence is below threshold
+        if result.web_confidence < threshold:
+            source_summaries = " | ".join(
+                f"{s.title[:60]} ({s.url[:60]})"
+                for s in result.sources[:3]
+            )
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message=(
+                    f"Web grounding confidence {result.web_confidence:.2f} "
+                    f"(threshold {threshold}) — verdict: {result.verdict}. "
+                    f"Sources: {source_summaries or 'none found'}"
+                ),
+                severity=severity,
+                found_value=str(claim_text)[:200],
+                expected_value=f"Web confidence >= {threshold}",
+                suggestion=(
+                    "Review this claim — web sources do not strongly support it."
+                    if result.verdict == "UNCERTAIN"
+                    else "This claim appears to be contradicted by web sources."
+                ),
             ))
 
         return violations
