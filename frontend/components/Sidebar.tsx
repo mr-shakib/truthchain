@@ -5,13 +5,14 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import {
   LayoutDashboard, ShieldCheck, KeyRound, History,
-  Settings, LogOut, Activity, ChevronRight, Zap, CreditCard
+  Settings, LogOut, Activity, ChevronRight, Zap, CreditCard, BarChart2
 } from 'lucide-react';
 
 const nav = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/validate', label: 'Validate', icon: ShieldCheck },
   { href: '/dashboard/history', label: 'History', icon: History },
+  { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart2 },
   { href: '/dashboard/api-keys', label: 'API Keys', icon: KeyRound },
   { href: '/dashboard/billing', label: 'Billing', icon: CreditCard },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },

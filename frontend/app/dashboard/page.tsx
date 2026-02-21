@@ -3,11 +3,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/lib/auth';
 import { createAuthApi, getApiError } from '@/lib/api';
-import type { OverviewStats, DailyStat, ValidationHistoryItem } from '@/lib/types';
+import type { OverviewStats, DailyStat, ValidationHistoryItem, TopViolation } from '@/lib/types';
 import { formatNumber, formatLatency, formatDateTime } from '@/lib/utils';
 import StatCard from '@/components/StatCard';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell
 } from 'recharts';
 import { ShieldCheck, AlertTriangle, Activity, Gauge, RefreshCw, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
@@ -42,22 +42,27 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<OverviewStats | null>(null);
   const [daily, setDaily] = useState<DailyStat[]>([]);
   const [recent, setRecent] = useState<ValidationHistoryItem[]>([]);
+  const [violations, setViolations] = useState<TopViolation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!apiKey) return;
     setError('');
     try {
       const api = createAuthApi(apiKey);
-      const [overviewData, dailyData, recentData] = await Promise.all([
+      const [overviewData, dailyData, recentData, violData] = await Promise.all([
         api.overview(),
         api.dailyStats(14),
         api.recentValidations(5),
+        api.topViolations(6),
       ]);
       setStats(overviewData);
       setDaily(dailyData);
       setRecent(recentData);
+      setViolations(violData);
+      setLastRefresh(new Date());
     } catch (err) {
       setError(getApiError(err));
     } finally {
@@ -65,7 +70,12 @@ export default function DashboardPage() {
     }
   }, [apiKey]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  // Initial load + auto-refresh every 30 seconds
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
 
   const chartData = daily.map(d => ({
     date: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -87,10 +97,17 @@ export default function DashboardPage() {
             Dashboard
           </h1>
         </div>
-        <button onClick={fetchData} className="tc-btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '8px 14px' }}>
-          <RefreshCw size={13} />
-          Refresh
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {lastRefresh && (
+            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: 'var(--text-muted)' }}>
+              Updated {lastRefresh.toLocaleTimeString()}
+            </span>
+          )}
+          <button onClick={fetchData} className="tc-btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '8px 14px' }}>
+            <RefreshCw size={13} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -226,6 +243,50 @@ export default function DashboardPage() {
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </div>
+      )}
+
+      {/* ── Top Violations ──────────────────────────────────────────── */}
+      {violations.length > 0 && (
+        <div className="glass-card fade-up-3" style={{ padding: '24px', marginBottom: '32px' }}>
+          <div style={{ marginBottom: '20px' }}>
+            <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: 'var(--text-muted)', letterSpacing: '0.1em', marginBottom: '4px' }}>
+              VIOLATION BREAKDOWN
+            </p>
+            <p style={{ fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: '15px', color: 'var(--text-primary)' }}>
+              Top rule violations
+            </p>
+          </div>
+          <ResponsiveContainer width="100%" height={Math.max(140, violations.length * 36)}>
+            <BarChart data={violations} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+              <XAxis type="number" tick={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fill: 'var(--text-muted)' }} axisLine={false} tickLine={false} />
+              <YAxis
+                type="category"
+                dataKey="rule_name"
+                width={160}
+                tick={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fill: 'var(--text-secondary)' }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  return (
+                    <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', borderRadius: '8px', padding: '10px 14px' }}>
+                      <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>{payload[0].payload.rule_name}</p>
+                      <p style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: 'var(--red)', fontWeight: 700 }}>{payload[0].value} violations</p>
+                    </div>
+                  );
+                }}
+              />
+              <Bar dataKey="count" radius={[0, 4, 4, 0]} name="violations">
+                {violations.map((_, idx) => (
+                  <Cell key={idx} fill={idx === 0 ? 'var(--red)' : idx <= 2 ? 'var(--amber)' : 'var(--cyan)'} opacity={0.85} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
 
