@@ -172,13 +172,35 @@ async def complete(
             ],
         )
 
-        # If a web_verify violation found contradicted/uncertain content, synthesize
-        # a grounded answer from the Tavily snippets via a second Groq call.
+        # Phrases that indicate the LLM couldn't answer the question from its own knowledge
+        _LLM_CANT_ANSWER = (
+            "i don't know", "i do not know", "i'm unable", "i am unable",
+            "i cannot provide", "i can't provide", "i don't have access",
+            "i do not have access", "my training data", "as of my training",
+            "as of my knowledge cutoff", "i don't have real-time",
+            "i don't have current", "i cannot access", "i can't access",
+            "i'm not able to provide", "would need to know the date",
+        )
+        llm_admits_ignorance = any(
+            phrase in (result.content or "").lower()
+            for phrase in _LLM_CANT_ANSWER
+        )
+
+        # Trigger grounding when:
+        # 1. Web found CONTRADICTED/UNCERTAIN verdict (LLM gave wrong answer), OR
+        # 2. LLM admitted it doesn't know AND web sources are available
         web_violation = next(
             (viol for viol in raw_violations
-             if getattr(viol, "severity", "") in ("error", "warning")
-             and (getattr(viol, "metadata", None) or {}).get("verdict") in ("CONTRADICTED", "UNCERTAIN")
-             and (getattr(viol, "metadata", None) or {}).get("sources")),
+             if (getattr(viol, "metadata", None) or {}).get("sources")
+             and (
+                 # Case 1: LLM gave a wrong/uncertain answer
+                 (getattr(viol, "severity", "") in ("error", "warning")
+                  and (getattr(viol, "metadata", None) or {}).get("verdict") in ("CONTRADICTED", "UNCERTAIN"))
+                 or
+                 # Case 2: LLM admitted it doesn't know but web has the answer
+                 (llm_admits_ignorance
+                  and (getattr(viol, "metadata", None) or {}).get("sources"))
+             )),
             None,
         )
         if web_violation:
@@ -203,13 +225,14 @@ async def complete(
                         "Answer the user's question using ONLY the web sources below. "
                         "Be concise (2-4 sentences). Mention which source(s) support your answer."
                     )
+                    sources_text = "\n\n".join(context_blocks)
                     grounding_messages = [
                         {"role": "system", "content": grounding_prompt},
                         {
                             "role": "user",
                             "content": (
                                 f"Question: {user_query}\n\n"
-                                f"Web Sources:\n{'\n\n'.join(context_blocks)}\n\n"
+                                f"Web Sources:\n{sources_text}\n\n"
                                 "Answer based on these sources only:"
                             ),
                         },
