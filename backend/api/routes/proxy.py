@@ -75,6 +75,7 @@ class CompleteResponse(BaseModel):
     error:                 str
     validation:            Optional[ValidationSummary] = None
     web_grounded_answer:   Optional[str] = None   # synthesized from web sources when LLM answer is contradicted
+    grounding_reason:      Optional[str] = None   # 'contradicted' | 'llm_uncertain'
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -149,6 +150,7 @@ async def complete(
     # Build optional validation summary
     val_summary: Optional[ValidationSummary] = None
     web_grounded_answer: Optional[str] = None
+    grounding_reason: Optional[str] = None
 
     if result.validation is not None:
         v = result.validation
@@ -189,21 +191,28 @@ async def complete(
         # Trigger grounding when:
         # 1. Web found CONTRADICTED/UNCERTAIN verdict (LLM gave wrong answer), OR
         # 2. LLM admitted it doesn't know AND web sources are available
+        _is_contradicted = lambda viol: (
+            getattr(viol, "severity", "") in ("error", "warning")
+            and (getattr(viol, "metadata", None) or {}).get("verdict") in ("CONTRADICTED", "UNCERTAIN")
+        )
         web_violation = next(
             (viol for viol in raw_violations
              if (getattr(viol, "metadata", None) or {}).get("sources")
              and (
-                 # Case 1: LLM gave a wrong/uncertain answer
-                 (getattr(viol, "severity", "") in ("error", "warning")
-                  and (getattr(viol, "metadata", None) or {}).get("verdict") in ("CONTRADICTED", "UNCERTAIN"))
+                 # Case 1: LLM gave a factually wrong/uncertain answer
+                 _is_contradicted(viol)
                  or
                  # Case 2: LLM admitted it doesn't know but web has the answer
-                 (llm_admits_ignorance
-                  and (getattr(viol, "metadata", None) or {}).get("sources"))
+                 llm_admits_ignorance
              )),
             None,
         )
         if web_violation:
+            # Record why grounding triggered
+            if _is_contradicted(web_violation):
+                grounding_reason = "contradicted"
+            elif llm_admits_ignorance:
+                grounding_reason = "llm_uncertain"
             try:
                 sources = web_violation.metadata["sources"]  # type: ignore[index]
                 # Build grounding context from snippets
@@ -262,4 +271,5 @@ async def complete(
         error=result.error or "",
         validation=val_summary,
         web_grounded_answer=web_grounded_answer,
+        grounding_reason=grounding_reason,
     )

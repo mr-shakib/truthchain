@@ -33,6 +33,8 @@ interface ChatMsg {
   pendingText?: string;             // buffered until pipeline seal step fires
   webGroundedAnswer?: string;       // synthesized from web sources when LLM is contradicted
   pendingWebGroundedAnswer?: string;// buffered alongside pendingText
+  groundingReason?: string;         // 'contradicted' | 'llm_uncertain'
+  pendingGroundingReason?: string;  // buffered until seal step
   raw?: string;
   ts: Date;
   latency_ms?: number;
@@ -568,7 +570,9 @@ function Bubble({ msg, side }: { msg: ChatMsg; side: 'left' | 'right' }) {
             }}>
               {msg.webGroundedAnswer && (
                 <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '9px', color: 'var(--amber)', marginBottom: '6px', letterSpacing: '0.05em' }}>
-                  ⚠ LLM ANSWER — CONTRADICTED BY WEB SOURCES
+                  {msg.groundingReason === 'llm_uncertain'
+                    ? '⚠ LLM ANSWER — TRAINING DATA TOO OLD FOR THIS QUERY'
+                    : '⚠ LLM ANSWER — CONTRADICTED BY WEB SOURCES'}
                 </div>
               )}
               {msg.text}
@@ -595,7 +599,7 @@ function Bubble({ msg, side }: { msg: ChatMsg; side: 'left' | 'right' }) {
                   ✓ WEB-GROUNDED ANSWER
                 </div>
                 <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '9px', color: 'var(--text-muted)' }}>
-                  synthesized from Tavily sources
+                  {msg.groundingReason === 'llm_uncertain' ? 'current data via Tavily search' : 'synthesized from Tavily sources'}
                 </span>
               </div>
               <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
@@ -765,6 +769,8 @@ export default function ShowcasePage() {
             pendingText: undefined,
             webGroundedAnswer: m.pendingWebGroundedAnswer ?? m.webGroundedAnswer,
             pendingWebGroundedAnswer: undefined,
+            groundingReason: m.pendingGroundingReason ?? m.groundingReason,
+            pendingGroundingReason: undefined,
           } : {};
           return { ...m, steps, ...reveal };
         }));
@@ -842,6 +848,7 @@ export default function ShowcasePage() {
         ...m,
         pendingText: data.content ?? data.raw_content ?? '(empty response)',
         pendingWebGroundedAnswer: data.web_grounded_answer ?? undefined,
+        pendingGroundingReason: data.grounding_reason ?? undefined,
         raw: data.raw_content,
         latency_ms: data.latency_ms,
         validation: { ...v, total_rules: scenario.rules.length },
