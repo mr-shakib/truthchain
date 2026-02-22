@@ -61,7 +61,7 @@ class CompleteResponse(BaseModel):
     output:      Dict[str, Any]
     provider:    str
     model:       str
-    usage:       Dict[str, int]
+    usage:       Dict[str, Any]
     latency_ms:  int
     error:       str
     validation:  Optional[ValidationSummary] = None

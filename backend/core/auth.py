@@ -133,7 +133,7 @@ async def check_quota(organization: Organization) -> bool:
     Returns:
         True if quota available, False if exhausted
     """
-    return organization.has_quota()
+    return await organization.has_quota()
 
 
 async def increment_usage(db: AsyncSession, organization: Organization) -> None:

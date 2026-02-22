@@ -75,7 +75,7 @@ class ProxyResult:
     validation:  Optional[ValidationResult]
     provider:    str
     model:       str
-    usage:       Dict[str, int] = field(default_factory=dict)
+    usage:       Dict[str, Any] = field(default_factory=dict)
     latency_ms:  int = 0
     error:       str = ""
 
@@ -262,7 +262,7 @@ class LLMProxy:
                 .get("message", {})
                 .get("content", "")
         )
-        usage: Dict[str, int] = data.get("usage", {})
+        usage: Dict[str, Any] = data.get("usage", {})
         output = _parse_content_to_output(raw_content, output_field)
 
         # ── 4. Validate ───────────────────────────────────────────────────────

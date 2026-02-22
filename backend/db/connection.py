@@ -2,29 +2,18 @@
 Database Connection Module
 Handles PostgreSQL connections with fallback for development
 """
-import os
-from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from typing import AsyncGenerator
 
 # Import Base from db.base
 from .base import Base
 
-# Load environment variables from .env file
-load_dotenv()
+# Use the centralised settings object (which reads .env with an absolute path fix)
+# so this module works regardless of the uvicorn working directory.
+from ..config.settings import settings
 
-# Database URL with smart defaults
-# Priority: .env file > environment variable > localhost > docker
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/truthchain"  # Local development default
-)
-
-# Redis URL for caching
-REDIS_URL = os.getenv(
-    "REDIS_URL",
-    "redis://localhost:6379/0"  # Local development default
-)
+DATABASE_URL = settings.DATABASE_URL
+REDIS_URL    = settings.REDIS_URL
 
 # For local development outside Docker, use this:
 # DATABASE_URL = "sqlite+aiosqlite:///./truthchain.db"

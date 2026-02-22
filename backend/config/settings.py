@@ -1,6 +1,10 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional
+from pathlib import Path
 import sys
+
+# Always resolve .env relative to this file, regardless of working directory
+_ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 
 _INSECURE_SECRET = "dev-secret-key-change-in-production"
 
@@ -57,7 +61,7 @@ class Settings(BaseSettings):
             sys.exit(1)
 
     class Config:
-        env_file = ".env"
+        env_file = str(_ENV_FILE)
         case_sensitive = True
         extra = "ignore"
 
