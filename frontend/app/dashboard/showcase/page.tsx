@@ -30,6 +30,7 @@ interface ChatMsg {
   id: string;
   role: 'user' | 'bot';
   text: string;
+  pendingText?: string;  // buffered until pipeline seal step fires
   raw?: string;
   ts: Date;
   latency_ms?: number;
@@ -511,13 +512,13 @@ function Bubble({ msg, side }: { msg: ChatMsg; side: 'left' | 'right' }) {
         </div>
       )}
 
-      {/* Text content */}
-      {!msg.error && msg.text && (
+      {/* Left side: plain text */}
+      {!isTc && !msg.error && msg.text && (
         <div style={{
           padding: '12px 14px',
-          background: isTc ? 'rgba(0,216,255,0.04)' : 'rgba(255,255,255,0.03)',
-          border: `1px solid ${isTc ? 'rgba(0,216,255,0.15)' : 'var(--border-subtle)'}`,
-          borderLeft: isTc ? '3px solid var(--cyan)' : '3px solid var(--border-default)',
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid var(--border-subtle)',
+          borderLeft: '3px solid var(--border-default)',
           borderRadius: '4px 8px 8px 4px',
           fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6,
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
@@ -526,14 +527,49 @@ function Bubble({ msg, side }: { msg: ChatMsg; side: 'left' | 'right' }) {
         </div>
       )}
 
-      {/* TruthChain: pipeline + badge */}
+      {/* TruthChain right side: pipeline first, shimmer while sealing, then text */}
       {isTc && msg.steps && msg.steps.some(s => s.status !== 'idle') && (
-        <div style={{ marginTop: '10px' }}>
+        <div>
           <Pipeline steps={msg.steps} />
+          {/* Shimmer shown while pipeline runs but text not yet revealed */}
+          {!msg.text && !msg.error && msg.pendingText && (
+            <div style={{
+              marginTop: '10px', padding: '10px 14px',
+              background: 'rgba(0,216,255,0.02)',
+              border: '1px solid rgba(0,216,255,0.08)',
+              borderLeft: '3px solid rgba(0,216,255,0.25)',
+              borderRadius: '4px 8px 8px 4px',
+              display: 'flex', alignItems: 'center', gap: '10px',
+            }}>
+              <div style={{
+                width: '12px', height: '12px', borderRadius: '50%', flexShrink: 0,
+                border: '1.5px solid rgba(0,216,255,0.2)', borderTopColor: 'var(--cyan)',
+                animation: 'tcSpin 0.8s linear infinite',
+              }} />
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', color: 'rgba(0,216,255,0.45)' }}>
+                sealing output…
+              </span>
+            </div>
+          )}
+          {/* Text revealed after seal step */}
+          {msg.text && (
+            <div style={{
+              marginTop: '10px', padding: '12px 14px',
+              background: 'rgba(0,216,255,0.04)',
+              border: '1px solid rgba(0,216,255,0.15)',
+              borderLeft: '3px solid var(--cyan)',
+              borderRadius: '4px 8px 8px 4px',
+              fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6,
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              animation: 'tcReveal 0.4s ease-out',
+            }}>
+              {msg.text}
+            </div>
+          )}
         </div>
       )}
 
-      {isTc && msg.validation && (
+      {isTc && msg.validation && msg.text && (
         <ValidationBadge
           validation={msg.validation}
           latency_ms={msg.latency_ms}
@@ -651,7 +687,9 @@ export default function ShowcasePage() {
           const steps: Step[] = m.steps ? [...m.steps] : base.map(s => ({ ...s, ms: undefined as number | undefined }));
           const extra = (i === 4 && webSources && webSources.length > 0) ? { sources: webSources } : {};
           steps[i] = { ...steps[i], status: statuses[i], detail: details[i], ms: ms[i], ...extra };
-          return { ...m, steps };
+          // Seal step (index 7) — reveal the buffered response text
+          const reveal = i === 7 ? { text: m.pendingText ?? m.text, pendingText: undefined } : {};
+          return { ...m, steps, ...reveal };
         }));
       }, delay);
     });
@@ -722,9 +760,10 @@ export default function ShowcasePage() {
       const llmMs = data.latency_ms ?? (Date.now() - tcStart);
       const v = data.validation ?? { is_valid: true, violations: 0, auto_corrected: 0, total_rules: scenario.rules.length };
 
+      // Store content in pendingText — will be revealed by animateSteps at seal step
       setRightMsgs(prev => prev.map(m => m.id !== rightId ? m : {
         ...m,
-        text: data.content ?? data.raw_content ?? '(empty response)',
+        pendingText: data.content ?? data.raw_content ?? '(empty response)',
         raw: data.raw_content,
         latency_ms: data.latency_ms,
         validation: { ...v, total_rules: scenario.rules.length },
@@ -968,7 +1007,7 @@ export default function ShowcasePage() {
                 </div>
               )}
               {rightMsgs.map(m =>
-                m.role === 'bot' && !m.text && !m.error
+                m.role === 'bot' && !m.text && !m.error && (!m.steps || m.steps.every(s => s.status === 'idle'))
                   ? <TypingIndicator key={m.id} side="right" />
                   : <div key={m.id} style={{ animation: 'tcReveal 0.3s ease-out' }}><Bubble msg={m} side="right" /></div>
               )}
