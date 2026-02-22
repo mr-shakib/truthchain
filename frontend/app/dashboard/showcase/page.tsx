@@ -3,13 +3,12 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import axios from 'axios';
+import { BASE_URL } from '@/lib/api';
 import {
   Send, Shield, Cpu, AlertTriangle, CheckCircle2, Clock,
   Zap, Brain, BarChart3, Wrench, RefreshCw, ChevronRight,
   Sparkles, Lock, Unlock, Activity
 } from 'lucide-react';
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8888';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
