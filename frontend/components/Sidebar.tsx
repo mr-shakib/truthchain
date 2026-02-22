@@ -5,11 +5,12 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import {
   LayoutDashboard, ShieldCheck, KeyRound, History,
-  Settings, LogOut, Activity, ChevronRight, Zap, CreditCard, BarChart2
+  Settings, LogOut, Activity, ChevronRight, Zap, CreditCard, BarChart2, Sparkles
 } from 'lucide-react';
 
 const nav = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
+  { href: '/dashboard/showcase', label: 'Showcase', icon: Sparkles },
   { href: '/dashboard/validate', label: 'Validate', icon: ShieldCheck },
   { href: '/dashboard/history', label: 'History', icon: History },
   { href: '/dashboard/analytics', label: 'Analytics', icon: BarChart2 },
@@ -94,6 +95,7 @@ export default function Sidebar() {
       <nav style={{ flex: 1, padding: '12px 12px', overflow: 'auto' }}>
         {nav.map(({ href, label, icon: Icon }) => {
           const exact = href === '/dashboard';
+          const isShowcase = href === '/dashboard/showcase';
           const active = exact ? pathname === href : pathname.startsWith(href);
           return (
             <Link key={href} href={href} style={{ textDecoration: 'none', display: 'block', marginBottom: '2px' }}>
@@ -102,26 +104,39 @@ export default function Sidebar() {
                 padding: '9px 12px', borderRadius: '8px',
                 fontSize: '13px', fontWeight: active ? 700 : 500,
                 fontFamily: 'Syne, sans-serif',
-                color: active ? 'var(--bg-void)' : 'var(--text-secondary)',
-                background: active ? 'var(--cyan)' : 'transparent',
+                color: active
+                  ? (isShowcase ? 'var(--bg-void)' : 'var(--bg-void)')
+                  : isShowcase ? 'var(--cyan)' : 'var(--text-secondary)',
+                background: active
+                  ? (isShowcase ? 'linear-gradient(135deg, var(--cyan), #7B61FF)' : 'var(--cyan)')
+                  : isShowcase ? 'rgba(0,216,255,0.07)' : 'transparent',
+                border: isShowcase && !active ? '1px solid rgba(0,216,255,0.2)' : '1px solid transparent',
                 transition: 'all 0.15s',
-                boxShadow: active ? '0 0 16px var(--cyan-glow)' : 'none',
+                boxShadow: active && isShowcase ? '0 0 20px var(--cyan-glow)' : active ? '0 0 16px var(--cyan-glow)' : 'none',
               }}
                 onMouseEnter={e => {
                   if (!active) {
-                    (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.04)';
-                    (e.currentTarget as HTMLDivElement).style.color = 'var(--text-primary)';
+                    (e.currentTarget as HTMLDivElement).style.background = isShowcase ? 'rgba(0,216,255,0.12)' : 'rgba(255,255,255,0.04)';
+                    (e.currentTarget as HTMLDivElement).style.color = isShowcase ? 'var(--cyan)' : 'var(--text-primary)';
                   }
                 }}
                 onMouseLeave={e => {
                   if (!active) {
-                    (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-                    (e.currentTarget as HTMLDivElement).style.color = 'var(--text-secondary)';
+                    (e.currentTarget as HTMLDivElement).style.background = isShowcase ? 'rgba(0,216,255,0.07)' : 'transparent';
+                    (e.currentTarget as HTMLDivElement).style.color = isShowcase ? 'var(--cyan)' : 'var(--text-secondary)';
                   }
                 }}
               >
                 <Icon size={14} strokeWidth={active ? 2.5 : 2} />
                 <span style={{ flex: 1 }}>{label}</span>
+                {isShowcase && !active && (
+                  <span style={{
+                    fontFamily: 'JetBrains Mono, monospace', fontSize: '8px', fontWeight: 700,
+                    padding: '1px 5px', borderRadius: '4px', letterSpacing: '0.06em',
+                    background: 'rgba(0,216,255,0.15)', color: 'var(--cyan)',
+                    border: '1px solid rgba(0,216,255,0.3)',
+                  }}>DEMO</span>
+                )}
                 {active && <ChevronRight size={12} strokeWidth={3} />}
               </div>
             </Link>
