@@ -7,7 +7,7 @@ import { BASE_URL } from '@/lib/api';
 import {
   Send, Shield, Cpu, AlertTriangle, CheckCircle2, Clock,
   Zap, Brain, BarChart3, Wrench, RefreshCw, ChevronRight,
-  Sparkles, Lock, Unlock, Activity
+  Sparkles, Lock, Unlock, Activity, Globe
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -144,6 +144,14 @@ const SCENARIOS = [
         description: 'Claims about medical treatments must be backed by scientific consensus and not present pseudoscience as established fact',
         severity: 'warning',
       },
+      {
+        type: 'web_verify',
+        name: 'live_fact_check',
+        field: 'content',
+        confidence_threshold: 0.5,
+        search_depth: 'basic',
+        severity: 'warning',
+      },
     ],
   },
   {
@@ -172,6 +180,7 @@ const STEP_TEMPLATES: Omit<Step, 'status' | 'ms'>[] = [
   { id: 'schema',     label: 'Schema Validation',  detail: 'Checking output structure',  icon: <CheckCircle2 size={13} /> },
   { id: 'pattern',    label: 'Pattern Check',      detail: 'Regex rule enforcement',     icon: <RefreshCw size={13} /> },
   { id: 'semantic',   label: 'Semantic Analysis',  detail: 'AI rule evaluation',         icon: <Brain size={13} /> },
+  { id: 'web_verify', label: 'Web Fact-Check',     detail: 'Live Tavily search',         icon: <Globe size={13} /> },
   { id: 'confidence', label: 'Confidence Score',   detail: 'Computing trust metric',     icon: <BarChart3 size={13} /> },
   { id: 'autocorrect',label: 'Auto-Correction',    detail: 'Repairing violations',       icon: <Wrench size={13} /> },
   { id: 'seal',       label: 'Output Sealed',      detail: 'Cryptographic attestation',  icon: <Shield size={13} /> },
@@ -508,28 +517,32 @@ export default function ShowcasePage() {
     totalRules: number,
     violations: number,
     corrected: number,
-    timing: { llm: number }
+    timing: { llm: number },
+    hasWebVerify: boolean
   ) {
-    const delays = [0, 80, 200, 380, 580, violations > 0 ? 720 : -1, 920];
+    //               llm  schema  pattern  semantic  web_verify  confidence  autocorrect  seal
+    const delays = [0,   80,     200,     380,      580,        780,        violations > 0 ? 920 : -1, 1100];
     const statuses: StepStatus[] = [
       'pass',
       totalRules > 0 ? 'pass' : 'skip',
       totalRules > 0 ? (violations > 0 ? 'warn' : 'pass') : 'skip',
       totalRules > 0 ? (violations > 0 ? 'warn' : 'pass') : 'skip',
+      hasWebVerify ? (violations > 0 ? 'warn' : 'pass') : 'skip',
       'pass',
-      corrected > 0 ? 'pass' : violations > 0 ? 'skip' : 'skip',
+      corrected > 0 ? 'pass' : 'skip',
       violations > 0 && corrected < violations ? 'warn' : 'pass',
     ];
     const details = [
       `Groq responded in ${timing.llm}ms`,
       totalRules > 0 ? 'Output structure validated' : 'No schema rules',
-      totalRules > 0 ? (violations > 0 ? `${violations} semantic flag(s)` : 'No anomalies found') : 'Skipped',
-      totalRules > 0 ? (violations > 0 ? 'Confidence reduced' : 'High-confidence output') : 'Skipped',
+      totalRules > 0 ? (violations > 0 ? `${violations} pattern flag(s)` : 'No anomalies found') : 'Skipped',
+      totalRules > 0 ? (violations > 0 ? 'Semantic violations found' : 'High-confidence output') : 'Skipped',
+      hasWebVerify ? (violations > 0 ? 'Web sources contradict claim' : 'Web sources confirm claim') : 'No web rules',
       'Trust score computed',
       corrected > 0 ? `${corrected} violation(s) corrected` : 'No corrections needed',
       violations === 0 || corrected >= violations ? 'Output sealed ✓' : 'Sealed with warnings',
     ];
-    const ms = [timing.llm, 12, 45, 62, 18, 34, 8];
+    const ms = [timing.llm, 12, 45, 62, violations > 0 ? 1200 : 800, 18, 34, 8];
 
     // Start with all idle, then light up one by one
     const base = STEP_TEMPLATES.map(s => ({ ...s, status: 'idle' as StepStatus }));
@@ -621,7 +634,8 @@ export default function ShowcasePage() {
         steps: m.steps, // keep steps — they'll be mutated by animateSteps
       }));
 
-      animateSteps(rightId, scenario.rules.length, v.violations ?? 0, v.auto_corrected ?? 0, { llm: llmMs });
+      const hasWebVerify = scenario.rules.some((r: { type: string }) => r.type === 'web_verify');
+      animateSteps(rightId, scenario.rules.length, v.violations ?? 0, v.auto_corrected ?? 0, { llm: llmMs }, hasWebVerify);
     }).catch(err => {
       const msg = err.response?.data?.detail ?? err.message ?? 'Request failed';
       setRightMsgs(prev => prev.map(m => m.id !== rightId ? m : { ...m, error: msg, steps: freshSteps() }));
