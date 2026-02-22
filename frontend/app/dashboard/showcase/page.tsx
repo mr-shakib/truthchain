@@ -72,6 +72,14 @@ const SCENARIOS = [
         description: 'Financial advice must include clear risk disclosure and diversification guidance',
         severity: 'warning',
       },
+      {
+        type: 'web_verify',
+        name: 'live_fact_check',
+        field: 'content',
+        confidence_threshold: 0.5,
+        search_depth: 'basic',
+        severity: 'warning',
+      },
     ],
   },
   {
@@ -97,6 +105,14 @@ const SCENARIOS = [
         field: 'content',
         pattern: '.*',
         message: 'Must not recommend self-treatment as the only option for serious symptoms',
+      },
+      {
+        type: 'web_verify',
+        name: 'live_fact_check',
+        field: 'content',
+        confidence_threshold: 0.5,
+        search_depth: 'basic',
+        severity: 'warning',
       },
     ],
   },
@@ -124,6 +140,14 @@ const SCENARIOS = [
         pattern: '^(?!.*password\\s*==).*',
         message: 'Code contains direct password string comparison (security violation)',
         severity: 'error',
+      },
+      {
+        type: 'web_verify',
+        name: 'live_fact_check',
+        field: 'content',
+        confidence_threshold: 0.5,
+        search_depth: 'basic',
+        severity: 'warning',
       },
     ],
   },
@@ -169,6 +193,14 @@ const SCENARIOS = [
         type: 'semantic',
         name: 'relevance_coherence',
         description: 'Response must be relevant to the question and logically coherent',
+        severity: 'warning',
+      },
+      {
+        type: 'web_verify',
+        name: 'live_fact_check',
+        field: 'content',
+        confidence_threshold: 0.5,
+        search_depth: 'basic',
         severity: 'warning',
       },
     ],
@@ -542,7 +574,7 @@ export default function ShowcasePage() {
       corrected > 0 ? `${corrected} violation(s) corrected` : 'No corrections needed',
       violations === 0 || corrected >= violations ? 'Output sealed ✓' : 'Sealed with warnings',
     ];
-    const ms = [timing.llm, 12, 45, 62, violations > 0 ? 1200 : 800, 18, 34, 8];
+    const ms = [timing.llm, 12, 45, 62, hasWebVerify ? (violations > 0 ? 1200 : 800) : 0, 18, 34, 8];
 
     // Start with all idle, then light up one by one
     const base = STEP_TEMPLATES.map(s => ({ ...s, status: 'idle' as StepStatus }));
