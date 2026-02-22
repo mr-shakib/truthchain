@@ -506,6 +506,14 @@ class RuleEngine:
                     if result.verdict == "UNCERTAIN"
                     else "This claim appears to be contradicted by web sources."
                 ),
+                metadata={
+                    "web_confidence": round(result.web_confidence, 3),
+                    "verdict": result.verdict,
+                    "sources": [
+                        {"title": s.title[:100], "url": s.url}
+                        for s in result.sources[:5]
+                    ],
+                },
             ))
 
         return violations

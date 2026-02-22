@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 from pydantic import BaseModel
 import time
 from datetime import datetime
@@ -29,6 +29,7 @@ class Violation(BaseModel):
     found_value: Any
     expected_value: Optional[Any] = None
     suggestion: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class ValidationResult(BaseModel):

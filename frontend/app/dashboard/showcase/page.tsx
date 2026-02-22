@@ -14,6 +14,8 @@ import {
 
 type StepStatus = 'idle' | 'running' | 'pass' | 'warn' | 'fail' | 'skip';
 
+interface WebSource { title: string; url: string; }
+
 interface Step {
   id: string;
   label: string;
@@ -21,6 +23,7 @@ interface Step {
   icon: React.ReactNode;
   status: StepStatus;
   ms?: number;
+  sources?: WebSource[];
 }
 
 interface ChatMsg {
@@ -35,6 +38,17 @@ interface ChatMsg {
     violations: number;
     auto_corrected: number;
     total_rules: number;
+    violations_detail?: Array<{
+      rule_name: string;
+      severity: string;
+      message: string;
+      suggestion?: string;
+      metadata?: {
+        web_confidence: number;
+        verdict: string;
+        sources: WebSource[];
+      };
+    }>;
   };
   steps?: Step[];
   error?: string;
@@ -306,6 +320,45 @@ function Pipeline({ steps }: { steps: Step[] }) {
                 {step.detail}
               </div>
             )}
+            {/* Web sources — shown when web_verify step has structured source data */}
+            {step.id === 'web_verify' && step.sources && step.sources.length > 0 && (
+              <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                {step.sources.map((src, si) => (
+                  <a
+                    key={si}
+                    href={src.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '3px 7px',
+                      borderRadius: '5px',
+                      background: 'rgba(255,201,69,0.06)',
+                      border: '1px solid rgba(255,201,69,0.15)',
+                      textDecoration: 'none',
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,201,69,0.13)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,201,69,0.06)')}
+                  >
+                    <Globe size={9} color="var(--amber)" style={{ flexShrink: 0 }} />
+                    <span style={{
+                      fontFamily: 'JetBrains Mono, monospace',
+                      fontSize: '9px',
+                      color: 'var(--amber)',
+                      overflow: 'hidden',
+                      whiteSpace: 'nowrap',
+                      textOverflow: 'ellipsis',
+                      maxWidth: '220px',
+                    }}>
+                      {src.title || src.url}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Right side: timing or status badge */}
@@ -550,7 +603,8 @@ export default function ShowcasePage() {
     violations: number,
     corrected: number,
     timing: { llm: number },
-    hasWebVerify: boolean
+    hasWebVerify: boolean,
+    webSources?: WebSource[]
   ) {
     //               llm  schema  pattern  semantic  web_verify  confidence  autocorrect  seal
     const delays = [0,   80,     200,     380,      580,        780,        violations > 0 ? 920 : -1, 1100];
@@ -585,7 +639,8 @@ export default function ShowcasePage() {
         setRightMsgs(prev => prev.map(m => {
           if (m.id !== msgId) return m;
           const steps: Step[] = m.steps ? [...m.steps] : base.map(s => ({ ...s, ms: undefined as number | undefined }));
-          steps[i] = { ...steps[i], status: statuses[i], detail: details[i], ms: ms[i] };
+          const extra = (i === 4 && webSources && webSources.length > 0) ? { sources: webSources } : {};
+          steps[i] = { ...steps[i], status: statuses[i], detail: details[i], ms: ms[i], ...extra };
           return { ...m, steps };
         }));
       }, delay);
@@ -667,7 +722,11 @@ export default function ShowcasePage() {
       }));
 
       const hasWebVerify = scenario.rules.some((r: { type: string }) => r.type === 'web_verify');
-      animateSteps(rightId, scenario.rules.length, v.violations ?? 0, v.auto_corrected ?? 0, { llm: llmMs }, hasWebVerify);
+      const webViolation = (v.violations_detail ?? []).find(
+        (d: { rule_name: string; metadata?: { sources?: WebSource[] } }) => d.metadata?.sources
+      );
+      const webSources: WebSource[] = webViolation?.metadata?.sources ?? [];
+      animateSteps(rightId, scenario.rules.length, v.violations ?? 0, v.auto_corrected ?? 0, { llm: llmMs }, hasWebVerify, webSources);
     }).catch(err => {
       const msg = err.response?.data?.detail ?? err.message ?? 'Request failed';
       setRightMsgs(prev => prev.map(m => m.id !== rightId ? m : { ...m, error: msg, steps: freshSteps() }));

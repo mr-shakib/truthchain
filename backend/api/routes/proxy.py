@@ -46,11 +46,20 @@ class CompleteRequest(BaseModel):
     extra_params:      Optional[Dict[str, Any]] = Field(None, description="Extra params forwarded to LLM API body")
 
 
+class ViolationItem(BaseModel):
+    rule_name:  str
+    severity:   str
+    message:    str
+    suggestion: Optional[str] = None
+    metadata:   Optional[Dict[str, Any]] = None
+
+
 class ValidationSummary(BaseModel):
-    is_valid:      bool
-    total_rules:   int
-    violations:    int
-    auto_corrected: int
+    is_valid:          bool
+    total_rules:       int
+    violations:        int
+    auto_corrected:    int
+    violations_detail: List[ViolationItem] = []
 
 
 class CompleteResponse(BaseModel):
@@ -141,11 +150,22 @@ async def complete(
     if result.validation is not None:
         v = result.validation
         corrected_count = len(getattr(v, "corrections", []) if hasattr(v, "corrections") else [])
+        raw_violations = v.violations if hasattr(v, "violations") else []
         val_summary = ValidationSummary(
             is_valid=v.is_valid,
             total_rules=getattr(v, "total_rules", len(request.validation_rules)),
-            violations=len(v.violations) if hasattr(v, "violations") else 0,
+            violations=len(raw_violations),
             auto_corrected=corrected_count,
+            violations_detail=[
+                ViolationItem(
+                    rule_name=viol.rule_name,
+                    severity=viol.severity,
+                    message=viol.message,
+                    suggestion=getattr(viol, "suggestion", None),
+                    metadata=getattr(viol, "metadata", None),
+                )
+                for viol in raw_violations
+            ],
         )
 
     return CompleteResponse(
