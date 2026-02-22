@@ -652,47 +652,82 @@ export default function ShowcasePage() {
     hasWebVerify: boolean,
     webSources?: WebSource[]
   ) {
-    //               llm  schema  pattern  semantic  web_verify  confidence  autocorrect  seal
-    const delays = [0,   80,     200,     380,      580,        780,        violations > 0 ? 920 : -1, 1100];
+    // Final status for each step
     const statuses: StepStatus[] = [
       'pass',
-      totalRules > 0 ? 'pass' : 'skip',
+      totalRules > 0 ? 'pass'                             : 'skip',
       totalRules > 0 ? (violations > 0 ? 'warn' : 'pass') : 'skip',
       totalRules > 0 ? (violations > 0 ? 'warn' : 'pass') : 'skip',
-      hasWebVerify ? (violations > 0 ? 'warn' : 'pass') : 'skip',
+      hasWebVerify   ? (violations > 0 ? 'warn' : 'pass') : 'skip',
       'pass',
-      corrected > 0 ? 'pass' : 'skip',
-      violations > 0 && corrected < violations ? 'warn' : 'pass',
+      corrected > 0  ? 'pass'                             : 'skip',
+      violations > 0 && corrected < violations ? 'warn'  : 'pass',
     ];
     const details = [
       `Groq responded in ${timing.llm}ms`,
-      totalRules > 0 ? 'Output structure validated' : 'No schema rules',
+      totalRules > 0 ? 'Output structure validated'                                              : 'No schema rules',
       totalRules > 0 ? (violations > 0 ? `${violations} pattern flag(s)` : 'No anomalies found') : 'Skipped',
-      totalRules > 0 ? (violations > 0 ? 'Semantic violations found' : 'High-confidence output') : 'Skipped',
-      hasWebVerify ? (violations > 0 ? 'Web sources contradict claim' : 'Web sources confirm claim') : 'No web rules',
+      totalRules > 0 ? (violations > 0 ? 'Semantic violations found'     : 'High-confidence output') : 'Skipped',
+      hasWebVerify   ? (violations > 0 ? 'Web sources contradict claim'  : 'Web sources confirm claim') : 'No web rules',
       'Trust score computed',
-      corrected > 0 ? `${corrected} violation(s) corrected` : 'No corrections needed',
-      violations === 0 || corrected >= violations ? 'Output sealed ✓' : 'Sealed with warnings',
+      corrected > 0  ? `${corrected} violation(s) corrected`             : 'No corrections needed',
+      violations === 0 || corrected >= violations ? 'Output sealed ✓'    : 'Sealed with warnings',
     ];
     const ms = [timing.llm, 12, 45, 62, hasWebVerify ? (violations > 0 ? 1200 : 800) : 0, 18, 34, 8];
 
-    // Start with all idle, then light up one by one
-    const base = STEP_TEMPLATES.map(s => ({ ...s, status: 'idle' as StepStatus }));
+    // How long each step spins in "running" state before completing (ms).
+    // Skipped steps get 0 (no spinner needed).
+    const durations = [
+      0,   // LLM — already spinning before API call; complete immediately
+      statuses[1] === 'skip' ? 0 : 100,  // Schema Validation
+      statuses[2] === 'skip' ? 0 : 120,  // Pattern Check
+      statuses[3] === 'skip' ? 0 : 140,  // Semantic Analysis
+      statuses[4] === 'skip' ? 0 : 220,  // Web Fact-Check
+      70,                                  // Confidence Score
+      statuses[6] === 'skip' ? 0 : 110,  // Auto-Correct
+      90,                                  // Output Sealed
+    ];
 
-    delays.forEach((delay, i) => {
-      if (delay < 0) return;
+    // Build sequential schedule: each step starts running right after the previous completes.
+    // Gap between a step completing and the next starting.
+    const GAP = 40;
+    const runAt: number[] = [];
+    let cursor = 0;
+    for (let i = 0; i < 8; i++) {
+      runAt[i] = cursor;
+      cursor += durations[i] + (durations[i] > 0 ? GAP : 0);
+    }
+
+    for (let i = 0; i < 8; i++) {
+      const dur = durations[i];
+
+      // Phase 1: set step to "running" (skip this phase for instant/skipped steps)
+      if (dur > 0) {
+        const t = runAt[i];
+        setTimeout(() => {
+          setRightMsgs(prev => prev.map(m => {
+            if (m.id !== msgId) return m;
+            const steps: Step[] = m.steps ? [...m.steps] : STEP_TEMPLATES.map(s => ({ ...s, status: 'idle' as StepStatus }));
+            steps[i] = { ...steps[i], status: 'running' };
+            return { ...m, steps };
+          }));
+        }, t);
+      }
+
+      // Phase 2: set step to final status after duration
+      const completeAt = runAt[i] + dur;
       setTimeout(() => {
         setRightMsgs(prev => prev.map(m => {
           if (m.id !== msgId) return m;
-          const steps: Step[] = m.steps ? [...m.steps] : base.map(s => ({ ...s, ms: undefined as number | undefined }));
+          const steps: Step[] = m.steps ? [...m.steps] : STEP_TEMPLATES.map(s => ({ ...s, status: 'idle' as StepStatus }));
           const extra = (i === 4 && webSources && webSources.length > 0) ? { sources: webSources } : {};
           steps[i] = { ...steps[i], status: statuses[i], detail: details[i], ms: ms[i], ...extra };
-          // Seal step (index 7) — reveal the buffered response text
+          // Seal step — reveal the buffered response text
           const reveal = i === 7 ? { text: m.pendingText ?? m.text, pendingText: undefined } : {};
           return { ...m, steps, ...reveal };
         }));
-      }, delay);
-    });
+      }, completeAt);
+    }
   }
 
   // ── Send ─────────────────────────────────────────────────────────────────
