@@ -154,7 +154,8 @@ async def complete(
         val_summary = ValidationSummary(
             is_valid=v.is_valid,
             total_rules=getattr(v, "total_rules", len(request.validation_rules)),
-            violations=len(raw_violations),
+            # "info" severity is informational — exclude from actionable violation count
+            violations=len([vl for vl in raw_violations if getattr(vl, "severity", "") in ("error", "warning")]),
             auto_corrected=corrected_count,
             violations_detail=[
                 ViolationItem(

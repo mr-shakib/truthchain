@@ -453,10 +453,16 @@ class RuleEngine:
             ))
             return violations
 
+        # Tavily rejects queries > 400 chars — truncate gracefully
+        query_text = str(claim_text)
+        if len(query_text) > 395:
+            # Keep the first 395 chars (usually the most claim-dense part)
+            query_text = query_text[:395]
+
         # Run the web fact-check
         try:
             result = await verifier.verify(
-                claim=str(claim_text),
+                claim=query_text,
                 search_depth=search_depth,
                 max_results=max_results,
             )
@@ -506,6 +512,27 @@ class RuleEngine:
                     if result.verdict == "UNCERTAIN"
                     else "This claim appears to be contradicted by web sources."
                 ),
+                metadata={
+                    "web_confidence": round(result.web_confidence, 3),
+                    "verdict": result.verdict,
+                    "sources": [
+                        {"title": s.title[:100], "url": s.url}
+                        for s in result.sources[:5]
+                    ],
+                },
+            ))
+        elif result.sources:
+            # Claim passed — still surface sources as informational metadata
+            violations.append(Violation(
+                rule_name=rule_name,
+                violation_type=ViolationType.REFERENCE,
+                field=field,
+                message=(
+                    f"Web sources support this claim "
+                    f"(confidence {result.web_confidence:.2f} ≥ threshold {threshold})"
+                ),
+                severity="info",
+                found_value=str(claim_text)[:200],
                 metadata={
                     "web_confidence": round(result.web_confidence, 3),
                     "verdict": result.verdict,

@@ -321,44 +321,54 @@ function Pipeline({ steps }: { steps: Step[] }) {
               </div>
             )}
             {/* Web sources — shown when web_verify step has structured source data */}
-            {step.id === 'web_verify' && step.sources && step.sources.length > 0 && (
-              <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                {step.sources.map((src, si) => (
-                  <a
-                    key={si}
-                    href={src.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      padding: '3px 7px',
-                      borderRadius: '5px',
-                      background: 'rgba(255,201,69,0.06)',
-                      border: '1px solid rgba(255,201,69,0.15)',
-                      textDecoration: 'none',
-                      transition: 'background 0.15s',
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,201,69,0.13)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,201,69,0.06)')}
-                  >
-                    <Globe size={9} color="var(--amber)" style={{ flexShrink: 0 }} />
-                    <span style={{
-                      fontFamily: 'JetBrains Mono, monospace',
-                      fontSize: '9px',
-                      color: 'var(--amber)',
-                      overflow: 'hidden',
-                      whiteSpace: 'nowrap',
-                      textOverflow: 'ellipsis',
-                      maxWidth: '220px',
-                    }}>
-                      {src.title || src.url}
-                    </span>
-                  </a>
-                ))}
-              </div>
-            )}
+            {step.id === 'web_verify' && step.sources && step.sources.length > 0 && (() => {
+              const isPass = step.status === 'pass';
+              const col = isPass ? 'var(--green, #4ade80)' : 'var(--amber)';
+              const bgBase = isPass ? 'rgba(74,222,128,0.06)' : 'rgba(255,201,69,0.06)';
+              const bgHover = isPass ? 'rgba(74,222,128,0.13)' : 'rgba(255,201,69,0.13)';
+              const bdBase = isPass ? 'rgba(74,222,128,0.18)' : 'rgba(255,201,69,0.15)';
+              return (
+                <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '8px', color: col, opacity: 0.7, marginBottom: '2px' }}>
+                    {isPass ? '✓ supporting sources' : '⚠ contradicting sources'}
+                  </div>
+                  {step.sources.map((src, si) => (
+                    <a
+                      key={si}
+                      href={src.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '3px 7px',
+                        borderRadius: '5px',
+                        background: bgBase,
+                        border: `1px solid ${bdBase}`,
+                        textDecoration: 'none',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = bgHover)}
+                      onMouseLeave={e => (e.currentTarget.style.background = bgBase)}
+                    >
+                      <Globe size={9} color={col} style={{ flexShrink: 0 }} />
+                      <span style={{
+                        fontFamily: 'JetBrains Mono, monospace',
+                        fontSize: '9px',
+                        color: col,
+                        overflow: 'hidden',
+                        whiteSpace: 'nowrap',
+                        textOverflow: 'ellipsis',
+                        maxWidth: '220px',
+                      }}>
+                        {src.title || src.url}
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Right side: timing or status badge */}
