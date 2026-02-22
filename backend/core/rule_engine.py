@@ -516,7 +516,7 @@ class RuleEngine:
                     "web_confidence": round(result.web_confidence, 3),
                     "verdict": result.verdict,
                     "sources": [
-                        {"title": s.title[:100], "url": s.url}
+                        {"title": s.title[:100], "url": s.url, "snippet": s.snippet[:400]}
                         for s in result.sources[:5]
                     ],
                 },
@@ -537,7 +537,7 @@ class RuleEngine:
                     "web_confidence": round(result.web_confidence, 3),
                     "verdict": result.verdict,
                     "sources": [
-                        {"title": s.title[:100], "url": s.url}
+                        {"title": s.title[:100], "url": s.url, "snippet": s.snippet[:400]}
                         for s in result.sources[:5]
                     ],
                 },

@@ -30,7 +30,9 @@ interface ChatMsg {
   id: string;
   role: 'user' | 'bot';
   text: string;
-  pendingText?: string;  // buffered until pipeline seal step fires
+  pendingText?: string;             // buffered until pipeline seal step fires
+  webGroundedAnswer?: string;       // synthesized from web sources when LLM is contradicted
+  pendingWebGroundedAnswer?: string;// buffered alongside pendingText
   raw?: string;
   ts: Date;
   latency_ms?: number;
@@ -559,11 +561,46 @@ function Bubble({ msg, side }: { msg: ChatMsg; side: 'left' | 'right' }) {
               border: '1px solid rgba(0,216,255,0.15)',
               borderLeft: '3px solid var(--cyan)',
               borderRadius: '4px 8px 8px 4px',
-              fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6,
+              fontSize: '13px', color: msg.webGroundedAnswer ? 'var(--text-muted)' : 'var(--text-primary)', lineHeight: 1.6,
               whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               animation: 'tcReveal 0.4s ease-out',
+              opacity: msg.webGroundedAnswer ? 0.55 : 1,
             }}>
+              {msg.webGroundedAnswer && (
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '9px', color: 'var(--amber)', marginBottom: '6px', letterSpacing: '0.05em' }}>
+                  ⚠ LLM ANSWER — CONTRADICTED BY WEB SOURCES
+                </div>
+              )}
               {msg.text}
+            </div>
+          )}
+          {/* Web-grounded answer — shown when LLM answer was contradicted */}
+          {msg.webGroundedAnswer && (
+            <div style={{
+              marginTop: '8px', padding: '12px 14px',
+              background: 'rgba(74,222,128,0.04)',
+              border: '1px solid rgba(74,222,128,0.2)',
+              borderLeft: '3px solid var(--green, #4ade80)',
+              borderRadius: '4px 8px 8px 4px',
+              animation: 'tcReveal 0.5s ease-out',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                <div style={{
+                  padding: '2px 8px', borderRadius: '4px',
+                  background: 'rgba(74,222,128,0.1)',
+                  border: '1px solid rgba(74,222,128,0.25)',
+                  fontFamily: 'JetBrains Mono, monospace', fontSize: '9px',
+                  color: 'var(--green, #4ade80)', letterSpacing: '0.05em',
+                }}>
+                  ✓ WEB-GROUNDED ANSWER
+                </div>
+                <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '9px', color: 'var(--text-muted)' }}>
+                  synthesized from Tavily sources
+                </span>
+              </div>
+              <div style={{ fontSize: '13px', color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {msg.webGroundedAnswer}
+              </div>
             </div>
           )}
         </div>
@@ -722,8 +759,13 @@ export default function ShowcasePage() {
           const steps: Step[] = m.steps ? [...m.steps] : STEP_TEMPLATES.map(s => ({ ...s, status: 'idle' as StepStatus }));
           const extra = (i === 4 && webSources && webSources.length > 0) ? { sources: webSources } : {};
           steps[i] = { ...steps[i], status: statuses[i], detail: details[i], ms: ms[i], ...extra };
-          // Seal step — reveal the buffered response text
-          const reveal = i === 7 ? { text: m.pendingText ?? m.text, pendingText: undefined } : {};
+          // Seal step — reveal the buffered response text and grounded answer
+          const reveal = i === 7 ? {
+            text: m.pendingText ?? m.text,
+            pendingText: undefined,
+            webGroundedAnswer: m.pendingWebGroundedAnswer ?? m.webGroundedAnswer,
+            pendingWebGroundedAnswer: undefined,
+          } : {};
           return { ...m, steps, ...reveal };
         }));
       }, completeAt);
@@ -799,6 +841,7 @@ export default function ShowcasePage() {
       setRightMsgs(prev => prev.map(m => m.id !== rightId ? m : {
         ...m,
         pendingText: data.content ?? data.raw_content ?? '(empty response)',
+        pendingWebGroundedAnswer: data.web_grounded_answer ?? undefined,
         raw: data.raw_content,
         latency_ms: data.latency_ms,
         validation: { ...v, total_rules: scenario.rules.length },

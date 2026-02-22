@@ -65,15 +65,16 @@ class ValidationSummary(BaseModel):
 class CompleteResponse(BaseModel):
     """Response from POST /v1/complete."""
 
-    content:     str
-    raw_content: str
-    output:      Dict[str, Any]
-    provider:    str
-    model:       str
-    usage:       Dict[str, Any]
-    latency_ms:  int
-    error:       str
-    validation:  Optional[ValidationSummary] = None
+    content:               str
+    raw_content:           str
+    output:                Dict[str, Any]
+    provider:              str
+    model:                 str
+    usage:                 Dict[str, Any]
+    latency_ms:            int
+    error:                 str
+    validation:            Optional[ValidationSummary] = None
+    web_grounded_answer:   Optional[str] = None   # synthesized from web sources when LLM answer is contradicted
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -147,6 +148,8 @@ async def complete(
 
     # Build optional validation summary
     val_summary: Optional[ValidationSummary] = None
+    web_grounded_answer: Optional[str] = None
+
     if result.validation is not None:
         v = result.validation
         corrected_count = len(getattr(v, "corrections", []) if hasattr(v, "corrections") else [])
@@ -169,6 +172,62 @@ async def complete(
             ],
         )
 
+        # If a web_verify violation found contradicted/uncertain content, synthesize
+        # a grounded answer from the Tavily snippets via a second Groq call.
+        web_violation = next(
+            (viol for viol in raw_violations
+             if getattr(viol, "severity", "") in ("error", "warning")
+             and (getattr(viol, "metadata", None) or {}).get("verdict") in ("CONTRADICTED", "UNCERTAIN")
+             and (getattr(viol, "metadata", None) or {}).get("sources")),
+            None,
+        )
+        if web_violation:
+            try:
+                sources = web_violation.metadata["sources"]  # type: ignore[index]
+                # Build grounding context from snippets
+                context_blocks = []
+                for idx, src in enumerate(sources[:3], 1):
+                    snippet = src.get("snippet", "").strip()
+                    if snippet:
+                        context_blocks.append(
+                            f"[{idx}] {src.get('title', '')}\n{snippet}\nURL: {src.get('url', '')}"
+                        )
+
+                if context_blocks:
+                    user_query = next(
+                        (m.content for m in reversed(request.messages) if m.role == "user"),
+                        "",
+                    )
+                    grounding_prompt = (
+                        "You are a fact-checking assistant. "
+                        "Answer the user's question using ONLY the web sources below. "
+                        "Be concise (2-4 sentences). Mention which source(s) support your answer."
+                    )
+                    grounding_messages = [
+                        {"role": "system", "content": grounding_prompt},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Question: {user_query}\n\n"
+                                f"Web Sources:\n{'\n\n'.join(context_blocks)}\n\n"
+                                "Answer based on these sources only:"
+                            ),
+                        },
+                    ]
+                    grounding_result = await proxy.complete(
+                        provider=request.provider,
+                        messages=grounding_messages,
+                        model=request.model,
+                        validation_rules=[],
+                        auto_correct=False,
+                        provider_api_key=request.provider_api_key,
+                        db_session=db,
+                    )
+                    if grounding_result.content and not grounding_result.error:
+                        web_grounded_answer = grounding_result.content
+            except Exception:
+                pass  # grounding is best-effort; never fail the main response
+
     return CompleteResponse(
         content=result.content,
         raw_content=result.raw_content,
@@ -179,4 +238,5 @@ async def complete(
         latency_ms=result.latency_ms,
         error=result.error or "",
         validation=val_summary,
+        web_grounded_answer=web_grounded_answer,
     )
