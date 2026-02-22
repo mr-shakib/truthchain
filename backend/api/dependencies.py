@@ -62,7 +62,7 @@ async def require_quota(
             detail=f"Subscription {status}. Please update your billing to continue using the API."
         )
 
-    if not check_quota(organization):
+    if not await check_quota(organization):
         raise HTTPException(
             status_code=429,
             detail=f"Monthly quota exhausted. Quota: {organization.monthly_quota}, Used: {organization.usage_current_month}"
@@ -147,7 +147,7 @@ async def require_quota_and_rate_limit(
     organization, api_key = org_data
     
     # Check quota
-    if not check_quota(organization):
+    if not await check_quota(organization):
         raise HTTPException(
             status_code=429,
             detail=f"Monthly quota exhausted. Quota: {organization.monthly_quota}, Used: {organization.usage_current_month}"
