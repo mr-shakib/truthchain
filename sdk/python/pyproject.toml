@@ -4,16 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "truthchain"
-version = "1.0.0"
+version = "1.0.2"
 description = "Python SDK for the TruthChain AI-validation API"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "TruthChain", email = "support@truthchain.dev" },
+]
 keywords = ["ai", "validation", "llm", "hallucination", "fact-checking"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -31,6 +34,12 @@ dev = [
     "pytest-asyncio>=0.21",
     "respx>=0.20",  # mock httpx in tests
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/truthchain/truthchain-python"
+"Documentation" = "https://github.com/truthchain/truthchain-python#readme"
+"Issue Tracker" = "https://github.com/truthchain/truthchain-python/issues"
+"Changelog" = "https://github.com/truthchain/truthchain-python/releases"
 
 [tool.setuptools.packages.find]
 where = ["."]
